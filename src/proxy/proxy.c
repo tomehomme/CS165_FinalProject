@@ -20,6 +20,60 @@
 
 #include <tls.h> // for TLS
 
+struct BloomFilter {
+	int size; // number of indices in the bloomfilter
+	int *bloomFilter;
+	char *blackListed[30000];
+	int numBlacklist;
+};
+
+void hash(struct BloomFilter *bloomFilter, const char object[]) {
+	/**
+	 *  Adds object to bloom filter using 5 different hash functions.
+	 * 
+	 **/ 
+	u_int32_t k = atoi(object);
+	bloomFilter->bloomFilter[k % bloomFilter->size] = 1;
+	bloomFilter->bloomFilter[k % 3] = 1;
+	bloomFilter->bloomFilter[k % 5] = 1;
+	bloomFilter->bloomFilter[k % 7] = 1;
+	bloomFilter->bloomFilter[k % 23] = 1;
+}
+
+int contains(struct BloomFilter *bloomFilter, const char fileName[]) {
+	/**
+	 *  Checks to see if the BloomFilter contains the fileName
+	 *  If bloomFilter[index] corresponding to hash(fileName) is not 1,
+	 *  Then the file is NOT in the bloom filter.
+	 *  Otherwise, the file possible is contained in the bloom filter.
+	 * 
+	 *  Returns 1 if the item is possibly contained, 0 if not
+	 * */
+
+	u_int32_t k = atoi(fileName);
+	if (bloomFilter->bloomFilter[k % bloomFilter->size] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 3] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 5] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 7] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 23] == 0) return 0;
+	
+	return 1;
+}
+
+int isInBlackList(struct BloomFilter *bloomFilter, const char fileName[]) {
+	/**
+	 *  Checks to see if the file is in the black list.
+	 *  Use this function after contains() returns 1.
+	 * */
+	int i;
+	for (i = 0; i < bloomFilter->numBlacklist; i++) {
+		if (strcmp(bloomFilter->blackListed[i], fileName) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void usage()
 {
 	extern char *__progname;
@@ -85,6 +139,62 @@ int main(int argc, char *argv[])
 	// tls_config_set_ca_file(config, ca_file);
 	// ctx = tls_server(); // set up server context
 	// tls_configure(ctx,config);
+
+	printf("[+]Creating Bloom Filter...\n");
+	struct BloomFilter bloomFilter;
+	bloomFilter.size = 30000;
+	bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(int));
+	
+	printf("[+]Reading black-listed objects from 'blacklisted.txt' and adding to bloom filter\n");
+	
+	FILE *fp;
+	char fileName[1024]; 
+	size_t fileLen = 0;
+	ssize_t read;
+	int i = 0;
+	if ((fp = fopen("blacklisted.txt", "r")) == NULL) {
+		printf("[-]Failed to open the file! Terminating program.\n");
+		exit(1);
+	}
+	while (fgets(fileName, sizeof(fileName), fp) != NULL)
+	{
+		if (fileName[strlen(fileName)-1] == '\n') {
+			fileName[strlen(fileName) - 1] = '\0'; // eat the newline fgets() stores
+		}
+		// file to bloom filter.
+		printf("\tADDING: '%s' to bloom filter\n", fileName);
+		bloomFilter.blackListed[i] = strcpy(malloc(strlen(fileName)+1), fileName);
+		hash(&bloomFilter, fileName);
+		i++;
+	}
+	bloomFilter.numBlacklist = i; // holds the number of blacklisted items
+	fclose(fp);
+
+	printf("[+]Successfully added blacklisted objects to bloom filter.\n");
+
+
+	printf("[.]Checking to see if BloomFilter hashing works.\n");
+	printf("\t[.]Check if present items return 1\n");
+	for (i = 0; i < bloomFilter.numBlacklist; i++) {
+		if (contains(&bloomFilter, bloomFilter.blackListed[i]) == 0) {
+			printf("[-]FAIL: Bloom filter returns false negative. FileName: '%s'\n", bloomFilter.blackListed[i]);
+			exit(1);
+		}
+	}
+	printf("\t[.]Check if non present items return 0 in Blacklist\n");
+	char nonExistingFiles[7][20] = {"test.txt", "Test1.txt", "notIn.txt", "ok.txt", "helloworld.txt", "BLACKLIST.txt", "a.txt"};
+	for (i = 0; i < 7; i++) {
+		if (contains(&bloomFilter, nonExistingFiles[i]) == 1) {
+			printf("\t\t[.]Bloom filter marked 1 for FileName: %s. Checking blacklist...\n", nonExistingFiles[i]);
+			if (isInBlackList(&bloomFilter, nonExistingFiles[i]) == 1) {
+				printf("[-]FAIL: Blacklist marks object as blacklisted\n");
+				exit(1);
+			}
+			
+		}
+	}
+
+	printf("[+]Bloom filter passes all checks.\n");
 
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -190,6 +300,7 @@ int main(int argc, char *argv[])
 						remainingData -= sentBytes;
 					}
 					printf("[+]Finished sending file to client\n");
+					close(fd);
 					bzero(buffer, sizeof(buffer));
 				}
 			}
