@@ -137,13 +137,8 @@ int main(int argc, char *argv[])
 		}
 
 		printf("[+]Sent Proxy file name: %s\n", fileName);
-
-		if (strcmp(buffer, ":exit") == 0)
-		{
-			// if (tls_close(ctx) == -1) {errx(1, "failed to close: %s", tls_error(ctx));}
-			close(clientSocket);
-			printf("[-]Disconnected from server.\n");
-		}
+		
+		
 		// recieve the file size
 		if (recv(clientSocket, buffer, sizeof(buffer), 0) < 0)
 		{
@@ -151,31 +146,40 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			fileSize = atoi(buffer);
-			recievedFile = fopen(fileName, "w");
-			if (recievedFile == NULL)
-			{
-				fprintf(stderr, "[-]Failed to open file foo --> %s\n", strerror(errno));
-
-				exit(EXIT_FAILURE);
-			}
-			remainingData = fileSize;
-			while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
-			{
-				fwrite(buffer, sizeof(char), len, recievedFile);
-				remainingData -= len;
-				printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
-			}
-			if (remainingData <= 0) {
-				printf("[+]Finished receiving file. Closing Socket.\n");
-				fclose(recievedFile);
-				close(clientSocket);
-				exit(0);
-			}
-			else {
-				printf("[-]Something went wrong!\n");
+			// // first check to see if the file is denied..
+			if (strstr(buffer, "Denied") != NULL) {
+				printf("%s\n", buffer);
 				exit(1);
 			}
+			else {
+				recievedFile = fopen(fileName, "w");
+				if (recievedFile == NULL)
+				{
+					fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
+
+					exit(EXIT_FAILURE);
+				}
+				fileSize = atoi(buffer);
+				remainingData = fileSize;
+				while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
+				{
+
+					fwrite(buffer, sizeof(char), len, recievedFile);
+					remainingData -= len;
+					printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
+				}
+				if (remainingData <= 0) {
+					printf("[+]Finished receiving '%s'. Closing Socket.\n", fileName);
+					fclose(recievedFile);
+					close(clientSocket);
+					return 0;
+				}
+				else {
+					printf("[-]Something went wrong!\n");
+					exit(1);
+				}
+			}
+
 		}
 	}
 
