@@ -17,54 +17,67 @@
 #include <sys/wait.h>
 #include <sys/sendfile.h>
 #include <fcntl.h>
-
+#include <math.h>
 #include <tls.h> // for TLS
+#define PORT 9999
 
 struct BloomFilter {
-	int size; // number of indices in the bloomfilter
-	int *bloomFilter;
+	double size; // number of indices in the bloomfilter
+	u_int8_t *bloomFilter;
 	char *blackListed[30000];
 	int numBlacklist;
 };
 
-void hash(struct BloomFilter *bloomFilter, const char object[]) {
-	/**
-	 *  Adds object to bloom filter using 5 different hash functions.
-	 * 
-	 **/ 
-	u_int32_t k = atoi(object);
-	bloomFilter->bloomFilter[k % bloomFilter->size] = 1;
-	bloomFilter->bloomFilter[k % 3] = 1;
-	bloomFilter->bloomFilter[k % 5] = 1;
-	bloomFilter->bloomFilter[k % 7] = 1;
-	bloomFilter->bloomFilter[k % 23] = 1;
+int stringToInt(const char *object) {
+	long  k = 0;
+	int i = 0;
+	while(object[i] != '\0') {
+		k += object[i];
+		i++;
+	}
+	return k;
+}
+/**
+ *  Adds object to bloom filter using 5 different hash functions.
+ * 
+ **/ 
+void hash(struct BloomFilter *bloomFilter, const char *object) {
+	
+
+	int k = stringToInt(object);
+	bloomFilter->bloomFilter[k % (int)bloomFilter->size] = 1;
+	bloomFilter->bloomFilter[k % 677] = 1;
+	bloomFilter->bloomFilter[k % 367] = 1;
+	bloomFilter->bloomFilter[k % 9949] = 1;
+	bloomFilter->bloomFilter[k % 19793] = 1;
 }
 
-int contains(struct BloomFilter *bloomFilter, const char fileName[]) {
-	/**
-	 *  Checks to see if the BloomFilter contains the fileName
-	 *  If bloomFilter[index] corresponding to hash(fileName) is not 1,
-	 *  Then the file is NOT in the bloom filter.
-	 *  Otherwise, the file possible is contained in the bloom filter.
-	 * 
-	 *  Returns 1 if the item is possibly contained, 0 if not
-	 * */
+/**
+ *  Checks to see if the BloomFilter contains the fileName
+ *  If bloomFilter[index] corresponding to hash(fileName) is 0
+ *  Then the file is NOT in the bloom filter.
+ *  
+ * 
+ *  Returns 1 if the item is possibly contained, 0 if not
+ * */
+int contains(struct BloomFilter *bloomFilter, const char *fileName) {
 
-	u_int32_t k = atoi(fileName);
-	if (bloomFilter->bloomFilter[k % bloomFilter->size] == 0) return 0;
-	if (bloomFilter->bloomFilter[k % 3] == 0) return 0;
-	if (bloomFilter->bloomFilter[k % 5] == 0) return 0;
-	if (bloomFilter->bloomFilter[k % 7] == 0) return 0;
-	if (bloomFilter->bloomFilter[k % 23] == 0) return 0;
+	int k = stringToInt(fileName);
+	if (bloomFilter->bloomFilter[k % (int) bloomFilter->size] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 677] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 367] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 9949] == 0) return 0;
+	if (bloomFilter->bloomFilter[k % 19793] == 0) return 0;
 	
+	// if all bits are 1, then the item is in the bloom filter.
 	return 1;
 }
 
+/**
+ *  Checks to see if the file is in the black list.
+ *  Use this function after contains() returns 0.
+ * */
 int isInBlackList(struct BloomFilter *bloomFilter, const char fileName[]) {
-	/**
-	 *  Checks to see if the file is in the black list.
-	 *  Use this function after contains() returns 1.
-	 * */
 	int i;
 	for (i = 0; i < bloomFilter->numBlacklist; i++) {
 		if (strcmp(bloomFilter->blackListed[i], fileName) == 0) {
@@ -142,10 +155,10 @@ int main(int argc, char *argv[])
 
 	printf("[+]Creating Bloom Filter...\n");
 	struct BloomFilter bloomFilter;
-	bloomFilter.size = 30000;
-	bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(int));
-	
-	printf("[+]Reading black-listed objects from 'blacklisted.txt' and adding to bloom filter\n");
+	bloomFilter.size = pow(2,32)-1; // to hold 30000 obj
+	bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(u_int8_t));
+	memset(bloomFilter.bloomFilter, 0, sizeof(bloomFilter.bloomFilter));
+	printf("[+]Reading black-listed objects from 'blacklisted.txt' and adding to black list\n");
 	
 	FILE *fp;
 	char fileName[1024]; 
@@ -161,40 +174,15 @@ int main(int argc, char *argv[])
 		if (fileName[strlen(fileName)-1] == '\n') {
 			fileName[strlen(fileName) - 1] = '\0'; // eat the newline fgets() stores
 		}
-		// file to bloom filter.
-		printf("\tADDING: '%s' to bloom filter\n", fileName);
+		// add file to blacklist
+		printf("\tADDING: '%s' to blacklist\n", fileName);
 		bloomFilter.blackListed[i] = strcpy(malloc(strlen(fileName)+1), fileName);
-		hash(&bloomFilter, fileName);
 		i++;
 	}
 	bloomFilter.numBlacklist = i; // holds the number of blacklisted items
 	fclose(fp);
 
-	printf("[+]Successfully added blacklisted objects to bloom filter.\n");
-
-
-	printf("[.]Checking to see if BloomFilter hashing works.\n");
-	printf("\t[.]Check if present items return 1\n");
-	for (i = 0; i < bloomFilter.numBlacklist; i++) {
-		if (contains(&bloomFilter, bloomFilter.blackListed[i]) == 0) {
-			printf("[-]FAIL: Bloom filter returns false negative. FileName: '%s'\n", bloomFilter.blackListed[i]);
-			exit(1);
-		}
-	}
-	printf("\t[.]Check if non present items return 0 in Blacklist\n");
-	char nonExistingFiles[7][20] = {"test.txt", "Test1.txt", "notIn.txt", "ok.txt", "helloworld.txt", "BLACKLIST.txt", "a.txt"};
-	for (i = 0; i < 7; i++) {
-		if (contains(&bloomFilter, nonExistingFiles[i]) == 1) {
-			printf("\t\t[.]Bloom filter marked 1 for FileName: %s. Checking blacklist...\n", nonExistingFiles[i]);
-			if (isInBlackList(&bloomFilter, nonExistingFiles[i]) == 1) {
-				printf("[-]FAIL: Blacklist marks object as blacklisted\n");
-				exit(1);
-			}
-			
-		}
-	}
-
-	printf("[+]Bloom filter passes all checks.\n");
+	printf("[+]Successfully added blacklisted objects to black List.\n");
 
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -260,6 +248,14 @@ int main(int argc, char *argv[])
 				}
 				else // sending the file back to the user.
 				{
+					// TODO: 1. Check compute hash bloom filter first with contains() function
+						// 1a. if contains() == 1, then respond "Request Denied" becuase item is blacklisted
+						// 1b. is contains() == 0, then run isInBlacklist(). If == 1, then respond "Request Denied"
+						// 2. check the cache files to see if file is stored
+							// 2a. if in cache, send the file
+						// 3. TLS connection/handshake with server and request file
+						// 4. send file to client over
+						// 5. close connection
 
 					int fd;
 					char fileContent[1024], c;

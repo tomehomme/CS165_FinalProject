@@ -15,33 +15,38 @@
 #include <unistd.h>
 
 #include <tls.h>
-// functions for TLS: 
-// tls_init(void): 
-		// The tls_init() function initializes global data structures. 
-		// It is no longer necessary to call this function directly, since it is invoked internally when needed. 
-		// It may be called more than once, and may be called concurrently.
-// struct tls_config* tls_config_new(void):
-		// create configuration before connection is created
-		// allocaties, init, and returns new default configuration for future connections
-		// --> tls_config_set_protocols(3), tls_load_file(3), tls_config_ocsp_require_stapling(3), and tls_config_verify(3).
-// const char* tls_config_error(struct tls_config *config);
-		// used to retrieve a string contiang more info about most recent error relating to a configurations
-// tls connection object is created by tls_client (or tls_server) and configured with tls_configure
-// client connection is init after configuration by calling tls_connect. server accepts new client connection with tls_accept _socket on already established socket connection
-// input - tls_read, output - tls_write
-// after use, tls connection closed with tls_close and then freed with tls_free.
+
+#define PORT 9999
 
 static void usage()
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s -port proxyportnumber filename\n", __progname);
+	fprintf(stderr, "usage: %s filename\n", __progname);
 	exit(1);
 }
+
+int stringToInt(const char *fileName) {
+	long  k = 0;
+	int i = 0;
+	while(fileName[i] != '\0') {
+		k += fileName[i];
+		i++;
+	}
+	return k;
+}
+
+int whichProxy(const char* fileName){
+	return stringToInt(fileName) % 5; 
+}
+
+struct Proxy {
+	int port;
+	char name[];
+};
 
 // your application name -port proxyportnumber filename
 int main(int argc, char *argv[])
 {
-
 	int clientSocket, ret;
 	struct sockaddr_in serverAddr;
 	char buffer[1024], *ep;
@@ -56,28 +61,14 @@ int main(int argc, char *argv[])
 	FILE *recievedFile;
 	int remainingData = 0;
 
-	if (argc != 4) // not enough arguments passed in
+	if (argc != 2) // not enough arguments passed in
 	{
 		usage();
 	}
 
-	p = strtoul(argv[2], &ep, 10); // grab proxyportnumber
-	if (*argv[2] == '\0' || *ep != '\0')
-	{
-		/* parameter wasn't a number, or was empty */
-		fprintf(stderr, "%s - not a number\n", argv[2]);
-		usage();
-	}
-	if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX))
-	{
-		/* It's a number, but it either can't fit in an unsigned
-		* long, or is too big for an unsigned short
-		*/
-		fprintf(stderr, "%s - value out of range\n", argv[2]);
-		usage();
-	}
+	
 	/* now safe to do this */
-	port = p;
+	port = PORT;
 
 	/*
 	* first set up "serverAddr" to be the location of the server
@@ -87,9 +78,19 @@ int main(int argc, char *argv[])
 	serverAddr.sin_port = htons(port);
 	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
+	struct Proxy proxies[5]; // 5 proxies
+	
 	// grab the filename from argument
-	strcpy(fileName, argv[3]);
+	strcpy(fileName, argv[1]);
 	printf("[+]File Name: %s\n", fileName);
+
+	// TODO: 1. compute has of the file name & proxies
+			// 1a. simply call whichProxy(fileName) to get the index of the proxy
+		// 2. TLS handshake with selected proxy & portnumber
+		// 3. send filename over TLS
+		// 4. recieve content of file requested
+		// 5. display content of file
+		// 6. close connection
 
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket < 0)
