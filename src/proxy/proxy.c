@@ -159,6 +159,12 @@ int main(int argc, char *argv[])
 	pid_t childpid;
 	pid_t pid;
 
+	// server
+	struct sockaddr_in server;
+	int serverSock;
+	pid_t serverPID;
+
+
 	// get the portnumber from argument
 	if (argc != 3)
 	{
@@ -309,6 +315,15 @@ int main(int argc, char *argv[])
 								// 2. check the cache files to see if file is stored
 								if (!isInCache(&proxy, buffer)){
 									// 3. TLS connection/handshake with server and request file
+										memset(&ap_sa, 0, sizeof(ap_sa));
+										ap_sa.sin_family = AF_INET;
+										ap_sa.sin_port = htons(9999);
+										ap_sa.sin_addr.s_addr = inet_addr("127.0.0.1");
+										if (ap_sa.sin_addr.s_addr == INADDR_NONE) {
+											fprintf(stderr, "Invalid IP address 127.0.0.1 \n");
+											usage();
+										}
+
 										// 3a. store the file in the cache
 										addToCache(&proxy, buffer);
 								}
