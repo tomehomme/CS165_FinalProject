@@ -25,21 +25,25 @@ static void usage()
 	exit(1);
 }
 
-int stringToInt(const char *fileName) {
-	long  k = 0;
+int stringToInt(const char *fileName)
+{
+	long k = 0;
 	int i = 0;
-	while(fileName[i] != '\0') {
+	while (fileName[i] != '\0')
+	{
 		k += fileName[i];
 		i++;
 	}
 	return k;
 }
 
-int whichProxy(const char* fileName){
-	return stringToInt(fileName) % 5; 
+int whichProxy(const char *fileName)
+{
+	return stringToInt(fileName) % 5;
 }
 
-struct Proxy {
+struct Proxy
+{
 	int port;
 	char name[];
 };
@@ -66,7 +70,6 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
-	
 	/* now safe to do this */
 	port = PORT;
 
@@ -79,18 +82,18 @@ int main(int argc, char *argv[])
 	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
 	struct Proxy proxies[5]; // 5 proxies
-	
+
 	// grab the filename from argument
 	strcpy(fileName, argv[1]);
 	printf("[+]File Name: %s\n", fileName);
 
 	// TODO: 1. compute has of the file name & proxies
-			// 1a. simply call whichProxy(fileName) to get the index of the proxy
-		// 2. TLS handshake with selected proxy & portnumber
-		// 3. send filename over TLS
-		// 4. recieve content of file requested
-		// 5. display content of file
-		// 6. close connection
+	// 1a. simply call whichProxy(fileName) to get the index of the proxy
+	// 2. TLS handshake with selected proxy & portnumber
+	// 3. send filename over TLS
+	// 4. recieve content of file requested
+	// 5. display content of file
+	// 6. close connection
 
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket < 0)
@@ -100,13 +103,12 @@ int main(int argc, char *argv[])
 	}
 	// from bob-beck libtls tutorial
 	// after you call connect, you call tls_connect_socket to associate a tls context with your connected socket
-	// struct tls *ctx; 
+	// struct tls *ctx;
 	// struct tls_config *config;
 	// config = tls_config_new();
 	// if ((ctx = tls_client()) == NULL) { err(1, "[-]Failed to create tls_client\n"); }
 	// if (tls_configure(ctx, config) == -1 ) { err(1, "[-]Failed to configure: %s", tls_error(ctx));}
 	printf("[+]Client Socket is created.\n");
-
 
 	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
 	// grab a socket
@@ -125,7 +127,7 @@ int main(int argc, char *argv[])
 		written = 0;
 		while (written < strlen(fileName))
 		{
-			w = write(clientSocket, fileName+written, strlen(fileName) - written);
+			w = write(clientSocket, fileName + written, strlen(fileName) - written);
 			// w = tls_write(ctx, fileName+written, strlen(fileName) - written);
 			if (w == -1)
 			{
@@ -137,50 +139,49 @@ int main(int argc, char *argv[])
 		}
 
 		printf("[+]Sent Proxy file name: %s\n", fileName);
-		
-		
+
 		// recieve the file size
 		if (recv(clientSocket, buffer, sizeof(buffer), 0) < 0)
 		{
-			printf("[-]Error in receiving data.\n");
+			printf("[-]Recv failed!\n");
+			exit(1);
+		}
+
+		// // first check to see if the file is denied..
+		if (strstr(buffer, "Denied") != NULL)
+		{
+			printf("%s\n", buffer);
+			exit(1);
 		}
 		else
 		{
-			// // first check to see if the file is denied..
-			if (strstr(buffer, "Denied") != NULL) {
-				printf("%s\n", buffer);
-				exit(1);
-			}
-			else {
-				// recievedFile = fopen(fileName, "w");
-				// if (recievedFile == NULL)
-				// {
-				// 	fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
+			// recievedFile = fopen(fileName, "w");
+			// if (recievedFile == NULL)
+			// {
+			// 	fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
 
-				// 	exit(EXIT_FAILURE);
-				// }
-				fileSize = atoi(buffer);
-				remainingData = fileSize;
-				while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
-				{
-					
-					printf("[+]Received: %s\n", buffer);
-					fwrite(buffer, sizeof(char), len, recievedFile);
-					// remainingData -= len;
-					printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
-				}
-				if (remainingData <= 0) {
-					printf("[+]Finished receiving '%s'. Closing Socket.\n", fileName);
-					// fclose(recievedFile);
-					close(clientSocket);
-					return 0;
-				}
-				else {
-					printf("[-]Something went wrong!\n");
-					exit(1);
-				}
-			}
+			// 	exit(EXIT_FAILURE);
+			// }
+			// fileSize = atoi(buffer);
+			// remainingData = fileSize;
+			// while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
+			// {
 
+			// 	printf("[+]Received: %s\n", buffer);
+			// 	fwrite(buffer, sizeof(char), len, recievedFile);
+			// 	// remainingData -= len;
+			// 	printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
+			// }
+			// if (remainingData <= 0) {
+			// 	printf("[+]Finished receiving '%s'. Closing Socket.\n", fileName);
+			// 	// fclose(recievedFile);
+			// close(clientSocket);
+			// return 0;
+			// }
+			printf("[+]Finished receiving '%s'. Printing contents...\n", fileName);
+			printf("%s\n", buffer);
+			close(clientSocket);
+			return 0;
 		}
 	}
 

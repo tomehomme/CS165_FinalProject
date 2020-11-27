@@ -309,6 +309,11 @@ int main(int argc, char *argv[])
 				}
 				else // sending the file back to the user.
 				{
+					printf("[+]Client requests: %s\n", buffer);
+
+					int fd;
+					char fileContent[1024], c;
+					buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
 					// 1. Check compute hash bloom filter first with isInBloomFilter() function
 					if (isInBloomFilter(proxy.bloomFilter, buffer))
 					{
@@ -327,7 +332,8 @@ int main(int argc, char *argv[])
 						{
 							// 2. check the cache files to see if file is stored
 							if (!isInCache(&proxy, buffer))
-							{	printf("[+]Initiate handshake with server\n");
+							{
+								printf("[+]Initiate handshake with server\n");
 								// 3. TLS connection/handshake with server and request file
 								memset(&server, 0, sizeof(server));
 								server.sin_family = AF_INET;
@@ -345,53 +351,34 @@ int main(int argc, char *argv[])
 
 								/* connect the socket to the server described in "server_sa" */
 								if (connect(serverSock, (struct sockaddr *)&server, sizeof(server)) == -1)
+								{
 									err(1, "connect failed");
+								}
 								send(serverSock, buffer, sizeof(buffer), 0);
+								int serverMsgLength = 0;
+								if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
+								{
+									printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
+									break;
+								}
+								else
+								{
+									printf("%s\n",buffer);
+									if (strcmp(buffer, "File does not exist.") == 0)
+									{
+										strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
+										send(newSocket, buffer, sizeof(buffer), 0);
+										printf("File does not exist.\n");
+										break;
+									}
+								}
 								// 3a. store the file in the cache
 								addToCache(&proxy, buffer);
-								printf("size %d\n", proxy.numCache);
+								printf("cache size %d\n", proxy.numCache);
 							}
 							// 4. send file to client over
-							int fd;
-							char fileContent[1024], c;
-							buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
-							printf("[+]Client requests: %s, read %d bytes from buffer \n", buffer, (int)msgLength);
-							// find the file from filename
-							if ((fd = open(buffer, O_RDONLY)) == -1)
-							{
-								printf("[-]Error! opening file\n");
-								// Program exits if the file pointer returns NULL.
-								strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
-								send(newSocket, buffer, sizeof(buffer), 0);
-								break;
-							}
-							printf("[+]Opened file.\n");
-
-							struct stat fileStat;
-							if (fstat(fd, &fileStat) < 0)
-							{
-								printf("[-]Error at fstat\n");
-								exit(1);
-							}
-							char fileSize[256];
-							sprintf(fileSize, "%d", (int)fileStat.st_size);
-							int len;
-							if ((len = send(newSocket, fileSize, sizeof(fileSize), 0) < 0))
-							{
-								printf("[-]Fail on sending length of file size");
-								exit(1);
-							}
-
-							off_t offset = 0;
-							int remainingData = fileStat.st_size;
-							// sending file data
-							int sentBytes = 0;
-							while ((sentBytes = sendfile(newSocket, fd, &offset, BUFSIZ)) > 0 && remainingData > 0)
-							{
-								remainingData -= sentBytes;
-							}
+							send(newSocket, buffer, sizeof(buffer), 0);
 							printf("[+]Finished sending file to client\n");
-							close(fd);
 							bzero(buffer, sizeof(buffer));
 						}
 					}
