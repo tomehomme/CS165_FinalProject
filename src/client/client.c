@@ -152,25 +152,26 @@ int main(int argc, char *argv[])
 				exit(1);
 			}
 			else {
-				recievedFile = fopen(fileName, "w");
-				if (recievedFile == NULL)
-				{
-					fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
+				// recievedFile = fopen(fileName, "w");
+				// if (recievedFile == NULL)
+				// {
+				// 	fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
 
-					exit(EXIT_FAILURE);
-				}
+				// 	exit(EXIT_FAILURE);
+				// }
 				fileSize = atoi(buffer);
 				remainingData = fileSize;
 				while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
 				{
-
+					
+					printf("[+]Received: %s\n", buffer);
 					fwrite(buffer, sizeof(char), len, recievedFile);
-					remainingData -= len;
+					// remainingData -= len;
 					printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
 				}
 				if (remainingData <= 0) {
 					printf("[+]Finished receiving '%s'. Closing Socket.\n", fileName);
-					fclose(recievedFile);
+					// fclose(recievedFile);
 					close(clientSocket);
 					return 0;
 				}

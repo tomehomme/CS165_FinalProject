@@ -39,7 +39,7 @@ static void kidhandler(int signum)
 int main(int argc, char *argv[])
 {
 
-	// relative to this proxy
+	// relative to this server
 	int sockfd, ret;
 	struct sockaddr_in serverAddr;
 	char buffer[1024], *ep;
@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
 		usage();
 	}
 	/* now safe to do this */
-	port = p;
+	port = PORT;
 
 	FILE *fp;
 	char fileName[1024]; 
