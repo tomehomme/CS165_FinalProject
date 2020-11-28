@@ -21,20 +21,28 @@
 #include <tls.h> // for TLS
 #define PORT 9999
 
+struct File {
+	char fileName[1024];
+	char content[1024];
+};
+
 struct BloomFilter
 {
 	double size; // number of indices in the bloomfilter
 	u_int8_t *bloomFilter;
 };
 
+
 struct Proxy
 {
 	struct BloomFilter *bloomFilter;
 	char *blackListed[30000];
 	int numBlacklist;
-	char *cache[30000];
+	struct File *cache;
 	int numCache;
 };
+
+
 
 /**
  * Adds ASCII value in string to convert to integer value
@@ -56,9 +64,10 @@ int stringToInt(const char *object)
  * Adds file to the cache
  * 
  * */
-void addToCache(struct Proxy *proxy, const char *fileName)
+void addToCache(struct Proxy *proxy, const char *file, const char *fileName)
 {
-	proxy->cache[proxy->numCache] = strcpy(malloc(strlen(fileName) + 1), fileName);
+	strcpy(memset(proxy->cache[proxy->numCache].fileName,0, sizeof(fileName)+1), fileName);
+	strcpy(memset(proxy->cache[proxy->numCache].content,0, sizeof(file)+1), file+strlen(fileName)+2);
 	proxy->numCache++;
 }
 
@@ -72,7 +81,8 @@ int isInCache(struct Proxy *proxy, const char *fileName)
 	int i;
 	for (i = 0; i < proxy->numCache; i++)
 	{
-		if (strcmp(proxy->cache[i], fileName) == 0)
+		printf("%s", proxy->cache[i].fileName);
+		if (strcmp(proxy->cache[i].fileName, fileName) == 0)
 		{
 			return 1;
 		}
@@ -80,6 +90,23 @@ int isInCache(struct Proxy *proxy, const char *fileName)
 	return 0;
 }
 
+/**
+ *  Returns file from cache into buffer
+ *  fileName: fileContent
+ * */
+void getFromCache(struct Proxy *proxy, const char *fileName, char *buffer) {
+	int i;
+	for (i = 0; i < proxy->numCache; i++)
+	{
+		if (strcmp(proxy->cache[i].fileName, fileName) == 0)
+		{
+			// if we have the correct file
+			strcpy(buffer, proxy->cache[i].fileName);
+			strcat(buffer, ": ");
+			strcat(buffer, proxy->cache[i].content);
+		}
+	}
+}
 /**
  *  Adds object to bloom filter using 5 different hash functions.
  * 
@@ -212,7 +239,10 @@ int main(int argc, char *argv[])
 	// initialize the proxy w/ blacklist & bloomfilter
 	struct Proxy proxy;
 	struct BloomFilter bloomFilter;
+
+	proxy.cache = malloc(30000 * sizeof(struct File *));
 	proxy.numCache = 0;
+
 	proxy.bloomFilter = &bloomFilter;
 	bloomFilter.size = pow(2, 32) - 1; // to hold 30000 obj
 	bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(u_int8_t));
@@ -289,18 +319,13 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-		// struct tls **cctx;
-		// if (tls_accept_socket(ctx, cctx, newSocket) == -1){
-		// 	printf("[-]Error on tls_accept_socket\n");
-		// 	exit(1);
-		// }
+		
 		if ((childpid = fork()) == 0)
 		{
 			close(sockfd);
 
 			while (1)
 			{
-
 				ssize_t msgLength;
 				if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
 				{ // check to see if client closed connection
@@ -309,11 +334,13 @@ int main(int argc, char *argv[])
 				}
 				else // sending the file back to the user.
 				{
-					printf("[+]Client requests: %s\n", buffer);
 
 					int fd;
-					char fileContent[1024], c;
+					char fileName[1024], c;
 					buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
+					strcpy(fileName, buffer);
+
+					printf("[+]Client requests: '%s'\n", fileName);
 					// 1. Check compute hash bloom filter first with isInBloomFilter() function
 					if (isInBloomFilter(proxy.bloomFilter, buffer))
 					{
@@ -333,7 +360,7 @@ int main(int argc, char *argv[])
 							// 2. check the cache files to see if file is stored
 							if (!isInCache(&proxy, buffer))
 							{
-								printf("[+]Initiate handshake with server\n");
+								printf("[+]File not in cache. Initiating handshake with server\n");
 								// 3. TLS connection/handshake with server and request file
 								memset(&server, 0, sizeof(server));
 								server.sin_family = AF_INET;
@@ -363,7 +390,7 @@ int main(int argc, char *argv[])
 								}
 								else
 								{
-									printf("%s\n",buffer);
+									printf("[+]Received '%s' from server.\n", buffer);
 									if (strcmp(buffer, "File does not exist.") == 0)
 									{
 										strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
@@ -373,10 +400,12 @@ int main(int argc, char *argv[])
 									}
 								}
 								// 3a. store the file in the cache
-								addToCache(&proxy, buffer);
-								printf("cache size %d\n", proxy.numCache);
+								printf("[+]Adding file to cache...\n");
+								addToCache(&proxy, buffer, fileName);
+								printf("[+]Finished adding to cache. Cache size: %d\n", proxy.numCache);
 							}
 							// 4. send file to client over
+							getFromCache(&proxy, fileName, buffer);
 							send(newSocket, buffer, sizeof(buffer), 0);
 							printf("[+]Finished sending file to client\n");
 							bzero(buffer, sizeof(buffer));

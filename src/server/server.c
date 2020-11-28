@@ -143,7 +143,6 @@ int main(int argc, char *argv[])
 		newSocket = accept(sockfd, (struct sockaddr *)&newAddr, &addr_size);
 		if (newSocket < 0)
 		{
-			printf("[-]Accept failed.\n");
 			exit(1);
 		}
 		printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
@@ -157,11 +156,6 @@ int main(int argc, char *argv[])
 				ssize_t msgLength;
 				if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
 				{ // check to see if client closed connection
-					printf("[-]Disconnected from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-					break;
-				}
-				else if (strcmp(buffer, ":exit") == 0)
-				{
 					printf("[-]Disconnected from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 					break;
 				}
@@ -192,48 +186,12 @@ int main(int argc, char *argv[])
 					}
 					else
 					{
-						printf("found file: %s:\n",fileContent);
+						printf("Sending file: filecontent to proxy: '%s'\n",fileContent);
 						send(newSocket, fileContent, sizeof(fileContent), 0);
 						printf("[+]Finished sending file to Proxy\n");
-						close(fd);
 						bzero(buffer, sizeof(buffer));
 					}
-					// if ((fd = open(buffer, O_RDONLY)) == -1)
-					// {
-					// 	printf("[-]Error! opening file\n");
-					// 	// Program exits if the file pointer returns NULL.
-					// 	strncpy(buffer,"File does not exist.", sizeof(buffer));
-					// 	send(newSocket,buffer, sizeof(buffer), 0);
-					// 	break;
-					// }
-					// printf("[+]Opened file.\n");
-
-					// struct stat fileStat;
-					// if (fstat(fd, &fileStat) < 0)
-					// {
-					// 	printf("[-]Error at fstat\n");
-					// 	exit(1);
-					// }
-					// char fileSize[256];
-					// sprintf(fileSize, "%d", (int)fileStat.st_size);
-					// int len;
-					// if ((len = send(newSocket, fileSize, sizeof(fileSize), 0) < 0))
-					// {
-					// 	printf("[-]Fail on sending length of file size");
-					// 	exit(1);
-					// }
-
-					// off_t offset = 0;
-					// int remainingData = fileStat.st_size;
-					// // sending file data
-					// int sentBytes = 0;
-					// while ((sentBytes = sendfile(newSocket, fd, &offset, BUFSIZ)) > 0 && remainingData > 0)
-					// {
-					// 	remainingData -= sentBytes;
-					// }
-					// printf("[+]Finished sending file to Proxy\n");
-					// close(fd);
-					// bzero(buffer, sizeof(buffer));
+					
 				}
 			}
 		}
