@@ -48,6 +48,58 @@ struct Proxy
 	char name[];
 };
 
+int tls_start(struct tls_config *cfg, struct tls *ctx)
+{
+	int success = 0;
+	/* Calling TLS */
+
+	if((tls_init()) != 0)
+	{
+		perror("TLS could not be initialized");
+		return success = 0;
+	}
+
+	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
+	{
+		perror("TLS Config could not finish.");
+		return success = 0;
+	}
+
+	printf("[+]TLS config created.\n");
+
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+	{
+		perror("Could not set client root certificate.");
+		return success = 0;
+	}
+
+	printf("[+]TLS certificate set.\n");
+
+	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+	{
+		perror("Could not set private client key.");
+		return success = 0;
+	}
+
+	printf("[+]TLS server private key set.\n");
+
+	if((ctx = tls_client())== NULL)
+	{
+		perror("Could not create client TLS context.");
+		return success = 0;
+	}
+
+	printf("[+]TLS server created.\n");
+
+	if(tls_configure(ctx, cfg) != 0)
+	{
+		perror("Could not create client TLS configuration.");
+		return success = 0;
+	}
+	printf("[+]TLS server instance created.\n");
+	return success = 1;
+}
+
 // your application name -port proxyportnumber filename
 int main(int argc, char *argv[])
 {
@@ -65,10 +117,21 @@ int main(int argc, char *argv[])
 	FILE *recievedFile;
 	int remainingData = 0;
 
+	/* Creating structs for TLS */
+
+	struct tls_config *cfg = NULL;
+	struct tls *ctx = NULL;
+
+	if (tls_start(cfg, ctx) == 1)
+	{
+		printf("[+]TLS client config completed.\n");
+	} 
+
 	if (argc != 2) // not enough arguments passed in
 	{
 		usage();
 	}
+	/* Done configuring tls */
 
 	/* now safe to do this */
 	port = PORT;

@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <tls.h> // for TLS
+
 #define PORT 9999
 
 struct File {
@@ -179,6 +180,69 @@ static void kidhandler(int signum)
 	waitpid(WAIT_ANY, NULL, WNOHANG);
 }
 
+int tls_start(struct tls_config *cfg, struct tls *ctx)
+{
+	int success = 0;
+	
+	//Init TLS
+	if (tls_init() != 0)
+	{
+		err(1, "tls_init:");
+	}
+
+	/*Configuring TLS*/
+
+	if((cfg = tls_config_new()) == NULL)
+	{
+		err(1, "tls_config_new:");
+		return success = 0;
+	}
+
+	printf("[+]TLS config created.\n");
+
+	/*Setting the auth certificate for proxy*/
+
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) // Set the certificate file
+	{
+		err(1, "tls_config_set_ca_file:");
+		return success = 0;
+	}
+
+	printf("[+]TLS proxy root certificate set.\n");
+
+	if(tls_config_set_cert_file(cfg, "../certificates/root.pem") != 0) //Set server certificate
+	{
+		err(1, "tls_config_set_cert_file:");
+		return success = 0;
+	}
+
+	printf("[+]TLS proxy server certificate set.\n");
+
+	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Set server certificate
+	{
+		err(1, "tls_config_set_key_file:");
+		return success = 0;
+	}
+
+	printf("[+]TLS server private key set.\n");
+
+	if((ctx = tls_server())== NULL)
+	{
+		err(1, "tls_server:");
+		return success = 0;
+	}
+
+	printf("[+]TLS proxy created.\n");
+
+	if(tls_configure(ctx, cfg) != 0)
+	{
+		err(1, "tls_configure: %s", tls_error(ctx));
+		return success = 0;
+	}
+	printf("[+]TLS proxy instance created.\n");
+	return success = 1;
+}
+
 // your application name -port portnumber
 int main(int argc, char *argv[])
 {
@@ -207,6 +271,18 @@ int main(int argc, char *argv[])
 	{
 		usage();
 	}
+
+	/* TLS Proxy Configuration */
+	struct tls_config *cfg = NULL;
+	struct tls *ctx = NULL;
+	struct tls *cctx = NULL;
+	uint8_t *mem;
+	size_t mem_len;
+
+	if (tls_start(cfg, ctx) == 1)
+	{
+		printf("[+]TLS server config completed.\n");
+	} 
 
 	errno = 0;
 	p = strtoul(argv[2], &ep, 10); // grab proxy port number
@@ -254,7 +330,7 @@ int main(int argc, char *argv[])
 	size_t fileLen = 0;
 	ssize_t read;
 	int i = 0;
-	if ((fp = fopen("blacklisted.txt", "r")) == NULL)
+	if ((fp = fopen("../src/proxy/blacklisted.txt", "r")) == NULL)
 	{
 		printf("[-]Failed to open the 'blacklisted.txt' file! Terminating program.\n");
 		exit(1);
