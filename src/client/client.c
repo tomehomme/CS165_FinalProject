@@ -48,57 +48,49 @@ struct Proxy
 	char name[];
 };
 
-int tls_start(struct tls_config *cfg, struct tls *ctx)
-{
-	int success = 0;
-	/* Calling TLS */
+// void tls_start(struct tls_config *cfg, struct tls *ctx)
+// {
+// 	/* Calling TLS */
 
-	if((tls_init()) != 0)
-	{
-		perror("TLS could not be initialized");
-		return success = 0;
-	}
+// 	if((tls_init()) != 0)
+// 	{
+// 		perror("TLS could not be initialized");
+// 	}
 
-	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
-	{
-		perror("TLS Config could not finish.");
-		return success = 0;
-	}
+// 	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
+// 	{
+// 		perror("TLS Config could not finish.");
+// 	}
 
-	printf("[+]TLS config created.\n");
+// 	printf("[+]TLS config created.\n");
 
-	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
-	{
-		perror("Could not set client root certificate.");
-		return success = 0;
-	}
+// 	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+// 	{
+// 		perror("Could not set client root certificate.");
+// 	}
 
-	printf("[+]TLS certificate set.\n");
+// 	printf("[+]TLS certificate set.\n");
 
-	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
-	{
-		perror("Could not set private client key.");
-		return success = 0;
-	}
+// 	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+// 	{
+// 		perror("Could not set private client key.");
+// 	}
 
-	printf("[+]TLS server private key set.\n");
+// 	printf("[+]TLS server private key set.\n");
 
-	if((ctx = tls_client())== NULL)
-	{
-		perror("Could not create client TLS context.");
-		return success = 0;
-	}
+// 	if((ctx = tls_client())== NULL)
+// 	{
+// 		perror("Could not create client TLS context.");
+// 	}
 
-	printf("[+]TLS server created.\n");
+// 	printf("[+]TLS server created.\n");
 
-	if(tls_configure(ctx, cfg) != 0)
-	{
-		perror("Could not create client TLS configuration.");
-		return success = 0;
-	}
-	printf("[+]TLS server instance created.\n");
-	return success = 1;
-}
+// 	if(tls_configure(ctx, cfg) != 0)
+// 	{
+// 		perror("Could not create client TLS configuration.");
+// 	}
+// 	printf("[+]TLS server instance created.\n");
+// }
 
 // your application name -port proxyportnumber filename
 int main(int argc, char *argv[])
@@ -121,17 +113,18 @@ int main(int argc, char *argv[])
 
 	struct tls_config *cfg = NULL;
 	struct tls *ctx = NULL;
+	struct tls *cctx = NULL;
 
-	if (tls_start(cfg, ctx) == 1)
-	{
-		printf("[+]TLS client config completed.\n");
-	} 
+	// tls_start(cfg, ctx);
+	// printf("[+]TLS client config completed.\n");
 
+
+	/* Done configuring tls */
 	if (argc != 2) // not enough arguments passed in
 	{
 		usage();
 	}
-	/* Done configuring tls */
+
 
 	/* now safe to do this */
 	port = PORT;
@@ -173,13 +166,74 @@ int main(int argc, char *argv[])
 	// if (tls_configure(ctx, config) == -1 ) { err(1, "[-]Failed to configure: %s", tls_error(ctx));}
 	printf("[+]Client Socket is created.\n");
 
+	printf("[+]Running TLS Configuration for client\n");
+	/* Calling TLS */
+
+	if((tls_init()) != 0)
+	{
+		perror("TLS could not be initialized");
+	}
+
+	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
+	{
+		perror("TLS Config could not finish.");
+	}
+
+	printf("[+]TLS config created.\n");
+
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+	{
+		perror("Could not set client root certificate.");
+	}
+
+	printf("[+]TLS certificate set.\n");
+
+	// if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+	// {
+	// 	perror("Could not set private client key.");
+	// }
+
+	// printf("[+]TLS client private key set.\n");
+	tls_config_insecure_noverifyname(cfg);
+
+	if((ctx = tls_client())== NULL)
+	{
+		perror("Could not create client TLS context.");
+	}
+
+	printf("[+]TLS client created.\n");
+
+	if(tls_configure(ctx, cfg) != 0)
+	{
+		perror("Could not create client TLS configuration.");
+	}
+	printf("[+]TLS client instance created.\n");
+
 	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+	
+	if(ret == 0)
+	{
+		printf("[+]Connected to proxy.\n");
+		/*TLS Connect Check*/
+	
+		int test;
+
+		if((tls_connect_socket(ctx, clientSocket, "client")) != 0)
+		{
+			// perror("[-]tls_connection could not be established with proxy");
+			err(1, "tls_connect_socket: %s", tls_error(ctx));
+			exit(1);
+		}
+		printf("[+]Secured connection to proxy with TLS\n");
+	}
+	
+
+
 	// grab a socket
 	// if (tls_connect(ctx, "127.0.0.1", argv[2]) == -1) {
 	// 	printf("[-]Error on tls_connect_socket\n");
 	// 	exit(1);
 	// }
-	printf("[+]Connected to Server.\n");
 
 	// tls_handshake();
 
@@ -190,13 +244,18 @@ int main(int argc, char *argv[])
 		written = 0;
 		while (written < strlen(fileName))
 		{
-			w = write(clientSocket, fileName + written, strlen(fileName) - written);
-			// w = tls_write(ctx, fileName+written, strlen(fileName) - written);
-			if (w == -1)
+			//w = write(clientSocket, fileName + written, strlen(fileName) - written);
+			if((tls_write(ctx, fileName+written, strlen(fileName) - written)) == -1)
 			{
-				if (errno != EINTR)
-					err(1, "write failed\n");
+				err(1, "tls_write: %s", tls_error(ctx));
+				// if (errno != EINTR)
+				// 	err(1, "write failed\n");	
 			}
+			// if (w == -1)
+			// {
+			// 	if (errno != EINTR)
+			// 		err(1, "write failed\n");
+			// }
 			else
 				written += w;
 		}
@@ -204,10 +263,15 @@ int main(int argc, char *argv[])
 		printf("[+]Sent Proxy file name: %s\n", fileName);
 
 		// recieve the file size
-		if (recv(clientSocket, buffer, sizeof(buffer), 0) < 0)
+		// if (recv(clientSocket, buffer, sizeof(buffer), 0) < 0)
+		// {
+		// 	printf("[-]Recv failed!\n");
+		// 	exit(1);
+		// }
+
+		if((tls_read(cctx, buffer, sizeof(buffer))) <= 0)
 		{
-			printf("[-]Recv failed!\n");
-			exit(1);
+			perror("tls_read from proxy\n");
 		}
 
 		// // first check to see if the file is denied..
