@@ -16,12 +16,15 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/sendfile.h>
+#include <pthread.h>
+
 #include <fcntl.h>
 #include <math.h>
 #include <tls.h> // for TLS
 #define PORT 9999
 
-struct File {
+struct File
+{
 	char fileName[1024];
 	char content[1024];
 };
@@ -32,7 +35,6 @@ struct BloomFilter
 	u_int8_t *bloomFilter;
 };
 
-
 struct Proxy
 {
 	struct BloomFilter *bloomFilter;
@@ -41,8 +43,6 @@ struct Proxy
 	struct File *cache;
 	int numCache;
 };
-
-
 
 /**
  * Adds ASCII value in string to convert to integer value
@@ -66,8 +66,8 @@ int stringToInt(const char *object)
  * */
 void addToCache(struct Proxy *proxy, const char *file, const char *fileName)
 {
-	strcpy(memset(proxy->cache[proxy->numCache].fileName,0, sizeof(fileName)+1), fileName);
-	strcpy(memset(proxy->cache[proxy->numCache].content,0, sizeof(file)+1), file+strlen(fileName)+2);
+	strcpy(memset(proxy->cache[proxy->numCache].fileName, 0, sizeof(fileName) + 1), fileName);
+	strcpy(memset(proxy->cache[proxy->numCache].content, 0, sizeof(file) + 1), file + strlen(fileName) + 2);
 	proxy->numCache++;
 }
 
@@ -81,7 +81,7 @@ int isInCache(struct Proxy *proxy, const char *fileName)
 	int i;
 	for (i = 0; i < proxy->numCache; i++)
 	{
-		printf("%s", proxy->cache[i].fileName);
+		// printf("%s", proxy->cache[i].fileName);
 		if (strcmp(proxy->cache[i].fileName, fileName) == 0)
 		{
 			return 1;
@@ -94,7 +94,8 @@ int isInCache(struct Proxy *proxy, const char *fileName)
  *  Returns file from cache into buffer
  *  fileName: fileContent
  * */
-void getFromCache(struct Proxy *proxy, const char *fileName, char *buffer) {
+void getFromCache(struct Proxy *proxy, const char *fileName, char *buffer)
+{
 	int i;
 	for (i = 0; i < proxy->numCache; i++)
 	{
@@ -177,6 +178,116 @@ static void kidhandler(int signum)
 {
 	/* signal handler for SIGCHLD */
 	waitpid(WAIT_ANY, NULL, WNOHANG);
+}
+
+struct thread_data
+{
+	struct Proxy *proxy;
+	int newSocket;
+	struct sockaddr_in newAddr;
+	struct sockaddr_in server;
+	int serverSock;
+};
+
+pthread_mutex_t lock;
+
+void *handleClient(void *inputs)
+{
+	while (1)
+	{
+		char buffer[1024];
+		struct thread_data *thread_data = (struct thread_data *)inputs;
+		ssize_t msgLength;
+		if ((msgLength = recv(thread_data->newSocket, buffer, sizeof(buffer), 0)) <= 0)
+		{ // check to see if client closed connection
+			printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
+			break;
+		}
+		else // sending the file back to the user.
+		{
+			int fd;
+			char fileName[1024], c;
+			buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
+			strcpy(fileName, buffer);
+
+			printf("[+]Client requests: '%s'\n", fileName);
+			// 1. Check compute hash bloom filter first with isInBloomFilter() function
+			if (isInBloomFilter(thread_data->proxy->bloomFilter, buffer))
+			{
+				// 1a. if isInBloomFilter() == 1, then respond "Request Denied" becuase item is blacklisted
+				send(thread_data->newSocket, "Access Denied.", sizeof(buffer), 0);
+			}
+			else
+			{
+				// 1b. is isInBloomFilter() == 0, then run isInBlacklist(). If == 1, then respond "Request Denied"
+				if (isInBlackList(thread_data->proxy, buffer))
+				{
+					printf("[!]File in blacklist. Denying access\n");
+					send(thread_data->newSocket, "Access Denied.", sizeof(buffer), 0);
+				}
+				else
+				{
+					// mutex so that we don't have multiple threads checking if the same file is not yet in the cache
+					pthread_mutex_lock(&lock);
+					// 2. check the cache files to see if file is stored
+					if (!isInCache(thread_data->proxy, buffer))
+					{
+						printf("[+]File not in cache. Initiating handshake with server\n");
+						// 3. TLS connection/handshake with server and request file
+						memset(&thread_data->server, 0, sizeof(thread_data->server));
+						thread_data->server.sin_family = AF_INET;
+						thread_data->server.sin_port = htons(9998);
+						thread_data->server.sin_addr.s_addr = inet_addr("127.0.0.1");
+						if (thread_data->server.sin_addr.s_addr == INADDR_NONE)
+						{
+							fprintf(stderr, "Invalid IP address 127.0.0.1 \n");
+							usage();
+						}
+
+						/* ok now get a socket. we don't care where... */
+						if ((thread_data->serverSock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+							err(1, "socket failed");
+
+						/* connect the socket to the server described in "server_sa" */
+						if (connect(thread_data->serverSock, (struct sockaddr *)&thread_data->server, sizeof(thread_data->server)) == -1)
+						{
+							err(1, "connect failed");
+						}
+						send(thread_data->serverSock, buffer, sizeof(buffer), 0);
+						int serverMsgLength = 0;
+						if ((serverMsgLength = recv(thread_data->serverSock, buffer, sizeof(buffer), 0)) <= 0)
+						{
+							printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
+							break;
+						}
+						else
+						{
+							printf("[+]Received '%s' from server.\n", buffer);
+							if (strcmp(buffer, "File does not exist.") == 0)
+							{
+								strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
+								send(thread_data->newSocket, buffer, sizeof(buffer), 0);
+								printf("File does not exist.\n");
+								break;
+							}
+						}
+						// 3a. store the file in the cache
+						printf("[+]Adding file to cache...\n");
+						addToCache(thread_data->proxy, buffer, fileName);
+						printf("[+]Finished adding to cache. Cache size: %d\n", thread_data->proxy->numCache);
+					}
+					 // unlock mutex
+					 pthread_mutex_unlock(&lock);
+					// 4. send file to client over
+					getFromCache(thread_data->proxy, fileName, buffer);
+					send(thread_data->newSocket, buffer, sizeof(buffer), 0);
+					printf("[+]Finished sending file to client\n");
+					bzero(buffer, sizeof(buffer));
+				}
+				// 5. close connection
+			}
+		}
+	}
 }
 
 // your application name -port portnumber
@@ -319,102 +430,118 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-		
-		if ((childpid = fork()) == 0)
+
+		pthread_t thread_id;
+		struct thread_data *thread_data = malloc(sizeof(struct thread_data));
+
+		thread_data->proxy = &proxy;
+		thread_data->newSocket = newSocket;
+		thread_data->newAddr = newAddr;
+		thread_data->server = server;
+		thread_data->serverSock = serverSock;
+		if (pthread_create(&thread_id, NULL, &handleClient, thread_data))
 		{
-			close(sockfd);
-
-			while (1)
-			{
-				ssize_t msgLength;
-				if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
-				{ // check to see if client closed connection
-					printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-					break;
-				}
-				else // sending the file back to the user.
-				{
-
-					int fd;
-					char fileName[1024], c;
-					buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
-					strcpy(fileName, buffer);
-
-					printf("[+]Client requests: '%s'\n", fileName);
-					// 1. Check compute hash bloom filter first with isInBloomFilter() function
-					if (isInBloomFilter(proxy.bloomFilter, buffer))
-					{
-						// 1a. if isInBloomFilter() == 1, then respond "Request Denied" becuase item is blacklisted
-						send(newSocket, "Access Denied.", sizeof(buffer), 0);
-					}
-					else
-					{
-						// 1b. is isInBloomFilter() == 0, then run isInBlacklist(). If == 1, then respond "Request Denied"
-						if (isInBlackList(&proxy, buffer))
-						{
-							printf("[!]File in blacklist. Denying access\n");
-							send(newSocket, "Access Denied.", sizeof(buffer), 0);
-						}
-						else
-						{
-							// 2. check the cache files to see if file is stored
-							if (!isInCache(&proxy, buffer))
-							{
-								printf("[+]File not in cache. Initiating handshake with server\n");
-								// 3. TLS connection/handshake with server and request file
-								memset(&server, 0, sizeof(server));
-								server.sin_family = AF_INET;
-								server.sin_port = htons(9998);
-								server.sin_addr.s_addr = inet_addr("127.0.0.1");
-								if (server.sin_addr.s_addr == INADDR_NONE)
-								{
-									fprintf(stderr, "Invalid IP address 127.0.0.1 \n");
-									usage();
-								}
-
-								/* ok now get a socket. we don't care where... */
-								if ((serverSock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
-									err(1, "socket failed");
-
-								/* connect the socket to the server described in "server_sa" */
-								if (connect(serverSock, (struct sockaddr *)&server, sizeof(server)) == -1)
-								{
-									err(1, "connect failed");
-								}
-								send(serverSock, buffer, sizeof(buffer), 0);
-								int serverMsgLength = 0;
-								if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
-								{
-									printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-									break;
-								}
-								else
-								{
-									printf("[+]Received '%s' from server.\n", buffer);
-									if (strcmp(buffer, "File does not exist.") == 0)
-									{
-										strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
-										send(newSocket, buffer, sizeof(buffer), 0);
-										printf("File does not exist.\n");
-										break;
-									}
-								}
-								// 3a. store the file in the cache
-								printf("[+]Adding file to cache...\n");
-								addToCache(&proxy, buffer, fileName);
-								printf("[+]Finished adding to cache. Cache size: %d\n", proxy.numCache);
-							}
-							// 4. send file to client over
-							getFromCache(&proxy, fileName, buffer);
-							send(newSocket, buffer, sizeof(buffer), 0);
-							printf("[+]Finished sending file to client\n");
-							bzero(buffer, sizeof(buffer));
-						}
-					}
-					// 5. close connection
-				}
-			}
+			fprintf(stderr, "No threads for you.\n");
+			return 1;
 		}
+
+		pthread_join(thread_id, NULL);
+
+		// 	if ((childpid = fork()) == 0)
+		// 	{
+		// 		close(sockfd);
+
+		// 		while (1)
+		// 		{
+		// 			ssize_t msgLength;
+		// 			if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
+		// 			{ // check to see if client closed connection
+		// 				printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
+		// 				break;
+		// 			}
+		// 			else // sending the file back to the user.
+		// 			{
+
+		// 				int fd;
+		// 				char fileName[1024], c;
+		// 				buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
+		// 				strcpy(fileName, buffer);
+
+		// 				printf("[+]Client requests: '%s'\n", fileName);
+		// 				// 1. Check compute hash bloom filter first with isInBloomFilter() function
+		// 				if (isInBloomFilter(proxy.bloomFilter, buffer))
+		// 				{
+		// 					// 1a. if isInBloomFilter() == 1, then respond "Request Denied" becuase item is blacklisted
+		// 					send(newSocket, "Access Denied.", sizeof(buffer), 0);
+		// 				}
+		// 				else
+		// 				{
+		// 					// 1b. is isInBloomFilter() == 0, then run isInBlacklist(). If == 1, then respond "Request Denied"
+		// 					if (isInBlackList(&proxy, buffer))
+		// 					{
+		// 						printf("[!]File in blacklist. Denying access\n");
+		// 						send(newSocket, "Access Denied.", sizeof(buffer), 0);
+		// 					}
+		// 					else
+		// 					{
+		// 						// 2. check the cache files to see if file is stored
+		// 						if (!isInCache(&proxy, buffer))
+		// 						{
+		// 							printf("[+]File not in cache. Initiating handshake with server\n");
+		// 							// 3. TLS connection/handshake with server and request file
+		// 							memset(&server, 0, sizeof(server));
+		// 							server.sin_family = AF_INET;
+		// 							server.sin_port = htons(9998);
+		// 							server.sin_addr.s_addr = inet_addr("127.0.0.1");
+		// 							if (server.sin_addr.s_addr == INADDR_NONE)
+		// 							{
+		// 								fprintf(stderr, "Invalid IP address 127.0.0.1 \n");
+		// 								usage();
+		// 							}
+
+		// 							/* ok now get a socket. we don't care where... */
+		// 							if ((serverSock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+		// 								err(1, "socket failed");
+
+		// 							/* connect the socket to the server described in "server_sa" */
+		// 							if (connect(serverSock, (struct sockaddr *)&server, sizeof(server)) == -1)
+		// 							{
+		// 								err(1, "connect failed");
+		// 							}
+		// 							send(serverSock, buffer, sizeof(buffer), 0);
+		// 							int serverMsgLength = 0;
+		// 							if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
+		// 							{
+		// 								printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
+		// 								break;
+		// 							}
+		// 							else
+		// 							{
+		// 								printf("[+]Received '%s' from server.\n", buffer);
+		// 								if (strcmp(buffer, "File does not exist.") == 0)
+		// 								{
+		// 									strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
+		// 									send(newSocket, buffer, sizeof(buffer), 0);
+		// 									printf("File does not exist.\n");
+		// 									break;
+		// 								}
+		// 							}
+		// 							// 3a. store the file in the cache
+		// 							printf("[+]Adding file to cache...\n");
+		// 							addToCache(&proxy, buffer, fileName);
+		// 							printf("[+]Finished adding to cache. Cache size: %d\n", proxy.numCache);
+		// 						}
+		// 						// 4. send file to client over
+		// 						getFromCache(&proxy, fileName, buffer);
+		// 						send(newSocket, buffer, sizeof(buffer), 0);
+		// 						printf("[+]Finished sending file to client\n");
+		// 						bzero(buffer, sizeof(buffer));
+		// 					}
+		// 				}
+		// 				// 5. close connection
+		// 			}
+		// 		}
+		// 	}
 	}
 	close(newSocket);
 

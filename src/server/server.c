@@ -35,7 +35,7 @@ int getFileContent(FILE *database, const char *filename, char *buffer)
 	while ((read = getline(&line, &len, database)) > 0)
 	{
 		line[read-2] = '\0';
-		printf("'%s'\n", line);
+		//printf("'%s'\n", line);
 		if (strstr(line, filename) != NULL)
 		{
 			strcpy(buffer, line);

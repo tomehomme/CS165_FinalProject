@@ -1,0 +1,11 @@
+text1.txt: Hello World
+text2.txt: The fox jumped over the lazy dog
+skeleton.txt: The skeleton had skeletons of his own in the closet.
+random.txt: Random words in front of other random words create a random sentence.
+paper.txt: Thirty years later, she still thought it was okay to put the toilet paper roll under rather than over.
+bear.txt: Smoky the Bear secretly started the fires.
+portal.txt: Cake, and grief counseling, will be available at the conclusion of the test.
+nier.txt: There's an important lesson here: the more of a fool people take you for, the more you'll learn of their true nature.
+witcher.txt: Bear! Bear! Run, you stupid piece of ****!
+catherine.txt: Sheep have interesting habits they all follow one leader. If the leader falls off a cliff the entire group will go to its death
+dragonQuest.txt: B-B-B-But--! Wait! Ye don't understand! I only read them for the articles! ...The articles, I tell ye!!
