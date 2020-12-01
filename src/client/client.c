@@ -18,6 +18,13 @@
 
 #define PORT 9999
 
+struct Proxy
+{
+	int port;
+	char *name;
+};
+
+
 static void usage()
 {
 	extern char *__progname;
@@ -37,16 +44,27 @@ int stringToInt(const char *fileName)
 	return k;
 }
 
-int whichProxy(const char *fileName)
-{
-	return stringToInt(fileName) % 5;
-}
 
-struct Proxy
+/**
+ * Given array of 5 Proxies, and the file name will perform a rendezvous hashing scheme.
+ * Concatenates the file name with each proxy name and hashes the strings to get 5 hash values
+ * returns the index of the proxy with the highest hash value.
+ * */
+int whichProxy(const struct Proxy *proxies, const char *fileName)
 {
-	int port;
-	char name[];
-};
+	int hash[5] = {0,0,0,0,0}; // hold hash values for each proxy
+	int maxIndex = 0;
+	for (int i = 0; i < 5; i++) {
+		hash[i] = stringToInt(fileName)+stringToInt(proxies[i].name); // concatenate object name with proxy name
+		hash[i] = hash[i] % 17; // hash the string s_i
+		if (hash[maxIndex] < hash[i]) {
+			// pick the highest hash value
+			maxIndex = i;
+		}
+	}
+	// return the proxy number
+	return maxIndex;
+}
 
 // your application name -port proxyportnumber filename
 int main(int argc, char *argv[])
@@ -62,7 +80,6 @@ int main(int argc, char *argv[])
 
 	ssize_t len;
 	int fileSize;
-	FILE *recievedFile;
 	int remainingData = 0;
 
 	if (argc != 2) // not enough arguments passed in
@@ -70,8 +87,21 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
-	/* now safe to do this */
-	port = PORT;
+	// 5 proxies
+	struct Proxy *proxies = malloc(5*sizeof(struct Proxy)); 
+	proxies[0] = (struct Proxy) {.name = "ProxyOne", .port = 9990};
+	proxies[1] = (struct Proxy) {.name = "ProxyTwo", .port = 9991};
+	proxies[2] = (struct Proxy) {.name = "ProxyThree", .port = 9992};
+	proxies[3] = (struct Proxy) {.name = "ProxyFour", .port = 9993};
+	proxies[4] = (struct Proxy) {.name = "ProxyFive", .port = 9994};
+
+	// grab the filename from argument
+	strcpy(fileName, argv[1]);
+	printf("[+]File Name: %s\n", fileName);
+
+	// get the port of the proxy we should connect to
+	port = proxies[whichProxy(proxies, fileName)].port;
+	printf("[+]Connecting to Port: %d\n", port);
 
 	/*
 	* first set up "serverAddr" to be the location of the server
@@ -81,19 +111,7 @@ int main(int argc, char *argv[])
 	serverAddr.sin_port = htons(port);
 	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	struct Proxy proxies[5]; // 5 proxies
-
-	// grab the filename from argument
-	strcpy(fileName, argv[1]);
-	printf("[+]File Name: %s\n", fileName);
-
-	// TODO: 1. compute has of the file name & proxies
-	// 1a. simply call whichProxy(fileName) to get the index of the proxy
-	// 2. TLS handshake with selected proxy & portnumber
-	// 3. send filename over TLS
-	// 4. recieve content of file requested
-	// 5. display content of file
-	// 6. close connection
+	
 
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket < 0)
@@ -101,24 +119,11 @@ int main(int argc, char *argv[])
 		printf("[-]Error in connection.\n");
 		exit(1);
 	}
-	// from bob-beck libtls tutorial
-	// after you call connect, you call tls_connect_socket to associate a tls context with your connected socket
-	// struct tls *ctx;
-	// struct tls_config *config;
-	// config = tls_config_new();
-	// if ((ctx = tls_client()) == NULL) { err(1, "[-]Failed to create tls_client\n"); }
-	// if (tls_configure(ctx, config) == -1 ) { err(1, "[-]Failed to configure: %s", tls_error(ctx));}
+	
 	printf("[+]Client Socket is created.\n");
 
 	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
-	// grab a socket
-	// if (tls_connect(ctx, "127.0.0.1", argv[2]) == -1) {
-	// 	printf("[-]Error on tls_connect_socket\n");
-	// 	exit(1);
-	// }
 	printf("[+]Connected to Server.\n");
-
-	// tls_handshake();
 
 	while (1)
 	{
