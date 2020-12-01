@@ -16,8 +16,6 @@
 
 #include <tls.h>
 
-#define PORT 9999
-
 struct Proxy
 {
 	int port;
@@ -31,6 +29,12 @@ static void usage()
 	fprintf(stderr, "usage: %s filename\n", __progname);
 	exit(1);
 }
+
+
+/**
+ * Given a string, will return the ascii sum of each character in it
+ * 
+ * */
 
 int stringToInt(const char *fileName)
 {
@@ -123,7 +127,7 @@ int main(int argc, char *argv[])
 	printf("[+]Client Socket is created.\n");
 
 	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
-	printf("[+]Connected to Server.\n");
+	printf("[+]Connected.\n");
 
 	while (1)
 	{
