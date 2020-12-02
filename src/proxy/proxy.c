@@ -427,7 +427,8 @@ int main(int argc, char *argv[])
 					if (isInBloomFilter(proxy.bloomFilter, buffer))
 					{
 						// 1a. if isInBloomFilter() == 1, then respond "Request Denied" becuase item is blacklisted
-						send(newSocket, "Access Denied.", sizeof(buffer), 0);
+						//send(newSocket, "Access Denied.", sizeof(buffer), 0);
+						tls_write(cctx, "Access Denied.", sizeof(buffer));
 					}
 					else
 					{
@@ -435,7 +436,14 @@ int main(int argc, char *argv[])
 						if (isInBlackList(&proxy, buffer))
 						{
 							printf("[!]File in blacklist. Denying access\n");
-							send(newSocket, "Access Denied.", sizeof(buffer), 0);
+							//send(newSocket, "Access Denied.", sizeof(buffer), 0);
+							tls_write(cctx, "Access Denied.", sizeof(buffer));
+							bzero(buffer, sizeof(buffer));
+							bzero(fileName, sizeof(fileName));
+							free(cctx);
+							close(newSocket);
+							break;
+							
 						}
 						else
 						{
@@ -514,14 +522,19 @@ int main(int argc, char *argv[])
 								{
 									errx(1, "tls_connect_socket: %s", tls_error(pctx));
 								}
-								printf("[+]Secured connection to server with TLS\n");
+
+								if(tls_handshake(pctx) != 0)
+								{
+									errx(1, "tls_handshake could not be established");
+								}
+								printf("[+]TLS Handshake complete\n");
 
 								//send(serverSock, buffer, sizeof(buffer), 0);
-								tls_write(pctx,buffer, sizeof(buffer));
+								tls_write(pctx, buffer, sizeof(buffer));
 								int serverMsgLength = 0;
 								// if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
 			
-								if ((serverMsgLength = tls_read(pctx, buffer, sizeof(buffer))) < 0)
+								if ((serverMsgLength = tls_read(pctx, buffer, sizeof(buffer))) <= 0)
 								{
 									printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 									break;
@@ -533,8 +546,10 @@ int main(int argc, char *argv[])
 									{
 										strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
 										//send(newSocket, buffer, sizeof(buffer), 0);
-										tls_write(ctx, buffer, sizeof(buffer));
+										tls_write(cctx, buffer, sizeof(buffer));
 										printf("File does not exist.\n");
+										bzero(buffer, sizeof(buffer));
+										bzero(fileName, sizeof(fileName));
 										break;
 									}
 								}
@@ -549,6 +564,9 @@ int main(int argc, char *argv[])
 							tls_write(cctx, buffer, sizeof(buffer));
 							printf("[+]Finished sending file to client\n");
 							bzero(buffer, sizeof(buffer));
+							bzero(fileName, sizeof(fileName));
+							free(cctx);
+							close(newSocket);
 						}
 					}
 					// 5. close connection

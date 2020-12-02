@@ -35,7 +35,7 @@ int getFileContent(FILE *database, const char *filename, char *buffer)
 	while ((read = getline(&line, &len, database)) > 0)
 	{
 		line[read-2] = '\0';
-		printf("'%s'\n", line);
+		//printf("'%s'\n", line);
 		if (strstr(line, filename) != NULL)
 		{
 			strcpy(buffer, line);
@@ -243,6 +243,9 @@ int main(int argc, char *argv[])
 						{
 							err(1, "tls_write: %s", tls_error(ctx));
 						};
+						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
 						break;
 					}
 
@@ -257,18 +260,24 @@ int main(int argc, char *argv[])
 							err(1, "tls_write: %s", tls_error(ctx));
 						};
 						printf("[-]Disconnected from proxy\n\n");
+						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
 						break;
 					}
 					else
 					{
 						printf("Sending file: filecontent to proxy: '%s'\n",fileContent);
 						//send(newSocket, fileContent, sizeof(fileContent), 0);
-						if((tls_write(cctx, buffer, sizeof(buffer))) <= 0)
+						if((tls_write(cctx, fileContent, sizeof(fileContent))) <= 0)
 						{
 							err(1, "tls_write: %s", tls_error(ctx));
 						};
 						printf("[+]Finished sending file to Proxy\n");
 						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
+						break;
 					}
 					
 				}

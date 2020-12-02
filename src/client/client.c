@@ -276,13 +276,15 @@ int main(int argc, char *argv[])
 		// // first check to see if the file is denied..
 		if (strstr(buffer, "Denied") != NULL)
 		{
-			printf("%s\n", buffer);
+			printf("[!]%s File is blacklisted.\n", buffer);
 			exit(1);
 		}
 		else
 		{
 			printf("[+]Finished receiving '%s'. Printing contents...\n", fileName);
 			printf("%s\n", buffer);
+			bzero(buffer, sizeof(buffer));
+			bzero(fileName, sizeof(fileName));
 			close(clientSocket);
 			return 0;
 		}
