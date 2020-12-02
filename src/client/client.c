@@ -209,23 +209,22 @@ int main(int argc, char *argv[])
 	}
 	printf("[+]TLS client instance created.\n");
 
-	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
-	
-	if(ret == 0)
-	{
-		printf("[+]Connected to proxy.\n");
-		/*TLS Connect Check*/
-	
-		int test;
+	//ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+	connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
 
-		if((tls_connect_socket(ctx, clientSocket, "client")) != 0)
-		{
-			// perror("[-]tls_connection could not be established with proxy");
-			err(1, "tls_connect_socket: %s", tls_error(ctx));
-			exit(1);
-		}
-		printf("[+]Secured connection to proxy with TLS\n");
+	printf("[+]Connected to proxy.\n");
+	/*TLS Connect Check*/
+
+	int test;
+
+	if((tls_connect_socket(ctx, clientSocket, "client")) != 0)
+	{
+		// perror("[-]tls_connection could not be established with proxy");
+		err(1, "tls_connect_socket: %s", tls_error(ctx));
+		exit(1);
 	}
+	printf("[+]Secured connection to proxy with TLS\n");
+	
 	
 
 
@@ -245,7 +244,7 @@ int main(int argc, char *argv[])
 		while (written < strlen(fileName))
 		{
 			//w = write(clientSocket, fileName + written, strlen(fileName) - written);
-			if((tls_write(ctx, fileName+written, strlen(fileName) - written)) == -1)
+			if((w = tls_write(ctx, fileName+written, strlen(fileName) - written)) <= 0)
 			{
 				err(1, "tls_write: %s", tls_error(ctx));
 				// if (errno != EINTR)
@@ -269,7 +268,7 @@ int main(int argc, char *argv[])
 		// 	exit(1);
 		// }
 
-		if((tls_read(cctx, buffer, sizeof(buffer))) <= 0)
+		if((tls_read(ctx, buffer, sizeof(buffer))) <= 0)
 		{
 			perror("tls_read from proxy\n");
 		}

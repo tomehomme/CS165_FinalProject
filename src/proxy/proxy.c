@@ -180,69 +180,6 @@ static void kidhandler(int signum)
 	waitpid(WAIT_ANY, NULL, WNOHANG);
 }
 
-// int tls_start(struct tls_config *cfg, struct tls *ctx)
-// {
-// 	int success = 0;
-	
-// 	//Init TLS
-// 	if (tls_init() != 0)
-// 	{
-// 		err(1, "tls_init:");
-// 	}
-
-// 	/*Configuring TLS*/
-
-// 	if((cfg = tls_config_new()) == NULL)
-// 	{
-// 		err(1, "tls_config_new:");
-// 		return success = 0;
-// 	}
-
-// 	printf("[+]TLS config created.\n");
-
-// 	/*Setting the auth certificate for proxy*/
-
-// 	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) // Set the certificate file
-// 	{
-// 		err(1, "tls_config_set_ca_file:");
-// 		return success = 0;
-// 	}
-
-// 	printf("[+]TLS proxy root certificate set.\n");
-
-// 	if(tls_config_set_cert_file(cfg, "../certificates/root.pem") != 0) //Set server certificate
-// 	{
-// 		err(1, "tls_config_set_cert_file:");
-// 		return success = 0;
-// 	}
-
-// 	printf("[+]TLS proxy server certificate set.\n");
-
-// 	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Set server certificate
-// 	{
-// 		err(1, "tls_config_set_key_file:");
-// 		return success = 0;
-// 	}
-
-// 	printf("[+]TLS proxy server private key set.\n");
-
-// 	if((ctx = tls_server())== NULL)
-// 	{
-// 		err(1, "tls_server:");
-// 		return success = 0;
-// 	}
-
-// 	printf("[+]TLS proxy created.\n");
-
-// 	if(tls_configure(ctx, cfg) != 0)
-// 	{
-// 		err(1, "tls_configure: %s", tls_error(ctx));
-// 		return success = 0;
-// 	}
-// 	printf("[+]TLS proxy instance created.\n");
-// 	return success = 1;
-// }
-
 // your application name -port portnumber
 int main(int argc, char *argv[])
 {
@@ -439,6 +376,10 @@ int main(int argc, char *argv[])
 
 	while (1)
 	{
+		struct tls_config *pcfg = NULL;
+		struct tls *pctx = NULL;
+		struct tls *pcctx = NULL;
+								
 		printf("[+]Accepting new connections..\n");
 		newSocket = accept(sockfd, (struct sockaddr *)&newAddr, &addr_size);
 		if (newSocket < 0)
@@ -468,7 +409,7 @@ int main(int argc, char *argv[])
 				// 	printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 				// 	break;
 				// }
-				if ((msgLength = tls_read(cctx, buffer, sizeof(buffer))) <= 0)
+				if ((msgLength = tls_read(cctx, buffer, sizeof(buffer))) < 0)
 				{ // check to see if client closed connection
 					printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 					break;
@@ -522,9 +463,65 @@ int main(int argc, char *argv[])
 								{
 									err(1, "connect failed");
 								}
-								send(serverSock, buffer, sizeof(buffer), 0);
+								
+								printf("[+]Running TLS Configuration for proxy client\n");
+								
+								
+								/* Calling TLS */
+
+								if((tls_init()) != 0)
+								{
+									perror("TLS could not be initialized");
+								}
+
+								if((pcfg = tls_config_new()) == NULL) //Initiates client TLS config.
+								{
+									perror("TLS Config could not finish.");
+								}
+
+								printf("[+]TLS config created.\n");
+
+								if(tls_config_set_ca_file(pcfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+								{
+									perror("Could not set client root certificate.");
+								}
+
+								printf("[+]TLS certificate set.\n");
+
+								// if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+								// {
+								// 	perror("Could not set private client key.");
+								// }
+
+								// printf("[+]TLS client private key set.\n");
+								tls_config_insecure_noverifyname(pcfg);
+
+								if((pctx = tls_client())== NULL)
+								{
+									perror("Could not create client TLS context.");
+								}
+
+								printf("[+]TLS client created.\n");
+
+								if(tls_configure(pctx, pcfg) != 0)
+								{
+									perror("Could not create client TLS configuration.");
+								}
+								printf("[+]TLS client instance created.\n");
+
+								/* connect to server via tls connection */
+								if ((tls_connect_socket(pctx, serverSock, "server")) != 0)
+								{
+									errx(1, "tls_connect_socket: %s", tls_error(pctx));
+								}
+								printf("[+]Secured connection to server with TLS\n");
+
+								//send(serverSock, buffer, sizeof(buffer), 0);
+								tls_write(pctx,buffer, sizeof(buffer));
 								int serverMsgLength = 0;
-								if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
+								// if ((serverMsgLength = recv(serverSock, buffer, sizeof(buffer), 0)) <= 0)
+			
+								if ((serverMsgLength = tls_read(pctx, buffer, sizeof(buffer))) < 0)
 								{
 									printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 									break;
@@ -535,7 +532,8 @@ int main(int argc, char *argv[])
 									if (strcmp(buffer, "File does not exist.") == 0)
 									{
 										strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
-										send(newSocket, buffer, sizeof(buffer), 0);
+										//send(newSocket, buffer, sizeof(buffer), 0);
+										tls_write(ctx, buffer, sizeof(buffer));
 										printf("File does not exist.\n");
 										break;
 									}
@@ -548,7 +546,7 @@ int main(int argc, char *argv[])
 							// 4. send file to client over
 							getFromCache(&proxy, fileName, buffer);
 							//send(newSocket, buffer, sizeof(buffer), 0);
-							tls_write(ctx, buffer, sizeof(buffer));
+							tls_write(cctx, buffer, sizeof(buffer));
 							printf("[+]Finished sending file to client\n");
 							bzero(buffer, sizeof(buffer));
 						}
