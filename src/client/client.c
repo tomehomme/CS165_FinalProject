@@ -64,14 +64,14 @@ struct Proxy
 
 // 	printf("[+]TLS config created.\n");
 
-// 	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+// 	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
 // 	{
 // 		perror("Could not set client root certificate.");
 // 	}
 
 // 	printf("[+]TLS certificate set.\n");
 
-// 	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+// 	if(tls_config_set_key_file(cfg, "../../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
 // 	{
 // 		perror("Could not set private client key.");
 // 	}
@@ -181,14 +181,14 @@ int main(int argc, char *argv[])
 
 	printf("[+]TLS config created.\n");
 
-	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
 	{
 		perror("Could not set client root certificate.");
 	}
 
 	printf("[+]TLS certificate set.\n");
 
-	// if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
+	// if(tls_config_set_key_file(cfg, "../../certificates//root/private/ca.key.pem") != 0) //Sets client private key.
 	// {
 	// 	perror("Could not set private client key.");
 	// }
@@ -277,6 +277,11 @@ int main(int argc, char *argv[])
 		if (strstr(buffer, "Denied") != NULL)
 		{
 			printf("[!]%s File is blacklisted.\n", buffer);
+			exit(1);
+		}
+		else if (strstr(buffer, "File does not exist") != NULL)
+		{
+			printf("[!]%s\n", buffer);
 			exit(1);
 		}
 		else

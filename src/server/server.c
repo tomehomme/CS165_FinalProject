@@ -106,21 +106,21 @@ int main(int argc, char *argv[])
 
 	/*Setting the auth certificate for proxy*/
 
-	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) // Set the certificate file
+	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) // Set the certificate file
 	{
 		errx(1, "tls_config_set_ca_file:");
 	}
 
 	printf("[+]TLS server root certificate set.\n");
 
-	if(tls_config_set_cert_file(cfg, "../certificates/root.pem") != 0) //Set server certificate
+	if(tls_config_set_cert_file(cfg, "../../certificates/root.pem") != 0) //Set server certificate
 	{
 		errx(1, "tls_config_set_cert_file:");
 	}
 
 	printf("[+]TLS server certificate set.\n");
 
-	if(tls_config_set_key_file(cfg, "../certificates//root/private/ca.key.pem") != 0) //Set server certificate
+	if(tls_config_set_key_file(cfg, "../../certificates//root/private/ca.key.pem") != 0) //Set server certificate
 	{
 		errx(1, "tls_config_set_key_file:");
 	}
@@ -234,7 +234,7 @@ int main(int argc, char *argv[])
 					printf("[+]Proxy requests: '%s'\n", buffer);
 					// find the file from filename
 					FILE *db;
-					if ((db = fopen("../src/server/files.txt", "r")) == NULL)
+					if ((db = fopen("../../src/server/files.txt", "r")) == NULL)
 					{ // will store the filename: content for all files in files.txt
 						printf("[-]Error! opening file 'files.txt'\n");
 						strncpy(buffer, "File does not exist.", sizeof(buffer));
