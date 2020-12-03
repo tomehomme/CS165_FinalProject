@@ -16,7 +16,11 @@
 
 #include <tls.h>
 
-#define PORT 9999
+struct Proxy
+{
+	int port;
+	char *name;
+};
 
 static void usage()
 {
@@ -25,26 +29,45 @@ static void usage()
 	exit(1);
 }
 
-int stringToInt(const char *fileName) {
-	long  k = 0;
+/**
+ * Given a string, will return the ascii sum of each character in it
+ * 
+ * */
+
+int stringToInt(const char *fileName)
+{
+	long k = 0;
 	int i = 0;
-	while(fileName[i] != '\0') {
+	while (fileName[i] != '\0')
+	{
 		k += fileName[i];
 		i++;
 	}
 	return k;
 }
 
-int whichProxy(const char* fileName){
-	return stringToInt(fileName) % 5; 
+/**
+ * Given array of 5 Proxies, and the file name will perform a rendezvous hashing scheme.
+ * Concatenates the file name with each proxy name and hashes the strings to get 5 hash values
+ * returns the index of the proxy with the highest hash value.
+ * */
+int whichProxy(const struct Proxy *proxies, const char *fileName)
+{
+	int hash[5] = {0,0,0,0,0}; // hold hash values for each proxy
+	int maxIndex = 0;
+	for (int i = 0; i < 5; i++) {
+		hash[i] = stringToInt(fileName)+stringToInt(proxies[i].name); // concatenate object name with proxy name
+		hash[i] = hash[i] % 17; // hash the string s_i
+		if (hash[maxIndex] < hash[i]) {
+			// pick the highest hash value
+			maxIndex = i;
+		}
+	}
+	// return the proxy number
+	return maxIndex;
 }
 
-struct Proxy {
-	int port;
-	char name[];
-};
-
-// your application name -port proxyportnumber filename
+// your application name filename
 int main(int argc, char *argv[])
 {
 	int clientSocket, ret;
@@ -58,17 +81,36 @@ int main(int argc, char *argv[])
 
 	ssize_t len;
 	int fileSize;
-	FILE *recievedFile;
 	int remainingData = 0;
 
+	/* Creating structs for TLS */
+	struct tls_config *cfg = NULL;
+	struct tls *ctx = NULL;
+	struct tls *cctx = NULL;
+
+	
+	/* Done configuring tls */
 	if (argc != 2) // not enough arguments passed in
 	{
 		usage();
 	}
 
-	
-	/* now safe to do this */
-	port = PORT;
+
+	// 5 proxies
+	struct Proxy *proxies = malloc(5*sizeof(struct Proxy)); 
+	proxies[0] = (struct Proxy) {.name = "ProxyOne", .port = 9990};
+	proxies[1] = (struct Proxy) {.name = "ProxyTwo", .port = 9991};
+	proxies[2] = (struct Proxy) {.name = "ProxyThree", .port = 9992};
+	proxies[3] = (struct Proxy) {.name = "ProxyFour", .port = 9993};
+	proxies[4] = (struct Proxy) {.name = "ProxyFive", .port = 9994};
+
+	// grab the filename from argument
+	strcpy(fileName, argv[1]);
+	printf("[+]File Name: %s\n", fileName);
+
+	// get the port of the proxy we should connect to
+	port = proxies[whichProxy(proxies, fileName)].port;
+	printf("[+]Connecting to Port: %d\n", port);
 
 	/*
 	* first set up "serverAddr" to be the location of the server
@@ -78,45 +120,64 @@ int main(int argc, char *argv[])
 	serverAddr.sin_port = htons(port);
 	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	struct Proxy proxies[5]; // 5 proxies
-	
-	// grab the filename from argument
-	strcpy(fileName, argv[1]);
-	printf("[+]File Name: %s\n", fileName);
-
-	// TODO: 1. compute has of the file name & proxies
-			// 1a. simply call whichProxy(fileName) to get the index of the proxy
-		// 2. TLS handshake with selected proxy & portnumber
-		// 3. send filename over TLS
-		// 4. recieve content of file requested
-		// 5. display content of file
-		// 6. close connection
-
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (clientSocket < 0)
 	{
 		printf("[-]Error in connection.\n");
 		exit(1);
 	}
-	// from bob-beck libtls tutorial
-	// after you call connect, you call tls_connect_socket to associate a tls context with your connected socket
-	// struct tls *ctx; 
-	// struct tls_config *config;
-	// config = tls_config_new();
-	// if ((ctx = tls_client()) == NULL) { err(1, "[-]Failed to create tls_client\n"); }
-	// if (tls_configure(ctx, config) == -1 ) { err(1, "[-]Failed to configure: %s", tls_error(ctx));}
+
 	printf("[+]Client Socket is created.\n");
 
+	printf("[+]Running TLS Configuration for client\n");
+	/* Calling TLS */
 
-	ret = connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
-	// grab a socket
-	// if (tls_connect(ctx, "127.0.0.1", argv[2]) == -1) {
-	// 	printf("[-]Error on tls_connect_socket\n");
-	// 	exit(1);
-	// }
-	printf("[+]Connected to Server.\n");
+	if((tls_init()) != 0)
+	{
+		perror("TLS could not be initialized");
+	}
 
-	// tls_handshake();
+	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
+	{
+		perror("TLS Config could not finish.");
+	}
+
+	printf("[+]TLS config created.\n");
+
+	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
+	{
+		perror("Could not set client root certificate.");
+	}
+
+	printf("[+]TLS certificate set.\n");
+
+	// printf("[+]TLS client private key set.\n");
+	tls_config_insecure_noverifyname(cfg);
+
+	if((ctx = tls_client())== NULL)
+	{
+		perror("Could not create client TLS context.");
+	}
+
+	printf("[+]TLS client created.\n");
+
+	if(tls_configure(ctx, cfg) != 0)
+	{
+		perror("Could not create client TLS configuration.");
+	}
+	printf("[+]TLS client instance created.\n");
+
+	connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+
+	printf("[+]Connected to proxy.\n");
+	/*TLS Connect Check*/
+
+	if((tls_connect_socket(ctx, clientSocket, "client")) != 0)
+	{
+		err(1, "tls_connect_socket: %s", tls_error(ctx));
+		exit(1);
+	}
+	printf("[+]Secured connection to proxy with TLS\n");
 
 	while (1)
 	{
@@ -125,61 +186,42 @@ int main(int argc, char *argv[])
 		written = 0;
 		while (written < strlen(fileName))
 		{
-			w = write(clientSocket, fileName+written, strlen(fileName) - written);
-			// w = tls_write(ctx, fileName+written, strlen(fileName) - written);
-			if (w == -1)
+			if((w = tls_write(ctx, fileName+written, strlen(fileName) - written)) <= 0)
 			{
-				if (errno != EINTR)
-					err(1, "write failed\n");
+				err(1, "tls_write: %s", tls_error(ctx));
+				
 			}
 			else
 				written += w;
 		}
 
 		printf("[+]Sent Proxy file name: %s\n", fileName);
-		
-		
+
 		// recieve the file size
-		if (recv(clientSocket, buffer, sizeof(buffer), 0) < 0)
+		if((tls_read(ctx, buffer, sizeof(buffer))) <= 0)
 		{
-			printf("[-]Error in receiving data.\n");
+			perror("tls_read from proxy\n");
+		}
+
+		// first check to see if the file is denied or does not exist..
+		if (strstr(buffer, "Denied") != NULL)
+		{
+			printf("[!]%s File is blacklisted.\n", buffer);
+			exit(1);
+		}
+		else if (strstr(buffer, "File does not exist") != NULL)
+		{
+			printf("[!]%s\n", buffer);
+			exit(1);
 		}
 		else
 		{
-			// // first check to see if the file is denied..
-			if (strstr(buffer, "Denied") != NULL) {
-				printf("%s\n", buffer);
-				exit(1);
-			}
-			else {
-				recievedFile = fopen(fileName, "w");
-				if (recievedFile == NULL)
-				{
-					fprintf(stderr, "[-]Failed to open file %s\n", strerror(errno));
-
-					exit(EXIT_FAILURE);
-				}
-				fileSize = atoi(buffer);
-				remainingData = fileSize;
-				while ((remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0))
-				{
-
-					fwrite(buffer, sizeof(char), len, recievedFile);
-					remainingData -= len;
-					printf("[+]Received %d bytes. Waiting on: %d bytes\n", (int)len, remainingData);
-				}
-				if (remainingData <= 0) {
-					printf("[+]Finished receiving '%s'. Closing Socket.\n", fileName);
-					fclose(recievedFile);
-					close(clientSocket);
-					return 0;
-				}
-				else {
-					printf("[-]Something went wrong!\n");
-					exit(1);
-				}
-			}
-
+			printf("[+]Finished receiving '%s'. Printing contents...\n", fileName);
+			printf("%s\n", buffer);
+			bzero(buffer, sizeof(buffer));
+			bzero(fileName, sizeof(fileName));
+			close(clientSocket);
+			return 0;
 		}
 	}
 

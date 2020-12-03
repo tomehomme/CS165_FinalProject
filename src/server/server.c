@@ -21,6 +21,29 @@
 #include <tls.h> // for TLS
 #define PORT 9998
 
+/**
+ *  Finds the filename in the database and puts the content into buffer 
+ *  returns -1 if the file is not found
+ * */
+int getFileContent(FILE *database, const char *filename, char *buffer)
+{
+	// find the file in the 'files.txt' file
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t read;
+	// read until new line
+	while ((read = getline(&line, &len, database)) > 0)
+	{
+		line[read-2] = '\0';
+		//printf("'%s'\n", line);
+		if (strstr(line, filename) != NULL)
+		{
+			strcpy(buffer, line);
+			return 0;
+		}
+	}
+	return -1;
+}
 
 static void usage()
 {
@@ -39,7 +62,7 @@ static void kidhandler(int signum)
 int main(int argc, char *argv[])
 {
 
-	// relative to this proxy
+	// relative to this server
 	int sockfd, ret;
 	struct sockaddr_in serverAddr;
 	char buffer[1024], *ep;
@@ -59,6 +82,64 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
+	/* TLS Server Configuration */
+	struct tls_config *cfg = NULL;
+	struct tls *ctx = NULL;
+	struct tls *cctx = NULL;
+	uint8_t *mem;
+	size_t mem_len;
+
+		//Init TLS
+	if (tls_init() != 0)
+	{
+		errx(1, "tls_init:");
+	}
+
+	/*Configuring TLS*/
+
+	if((cfg = tls_config_new()) == NULL)
+	{
+		errx(1, "tls_config_new:");
+	}
+
+	printf("[+]TLS config created.\n");
+
+	/*Setting the auth certificate for proxy*/
+
+	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) // Set the certificate file
+	{
+		errx(1, "tls_config_set_ca_file:");
+	}
+
+	printf("[+]TLS server root certificate set.\n");
+
+	if(tls_config_set_cert_file(cfg, "../../certificates/root.pem") != 0) //Set server certificate
+	{
+		errx(1, "tls_config_set_cert_file:");
+	}
+
+	printf("[+]TLS server certificate set.\n");
+
+	if(tls_config_set_key_file(cfg, "../../certificates//root/private/ca.key.pem") != 0) //Set server certificate
+	{
+		errx(1, "tls_config_set_key_file:");
+	}
+
+	printf("[+]TLS server private key set.\n");
+
+	if((ctx = tls_server())== NULL)
+	{
+		errx(1, "tls_server:");
+	}
+
+	printf("[+]TLS server created.\n");
+
+	if(tls_configure(ctx, cfg) != 0)
+	{
+		errx(1, "tls_configure: %s", tls_error(ctx));
+	}
+	printf("[+]TLS server instance created.\n");
+
 	errno = 0;
 	p = strtoul(argv[2], &ep, 10); // grab proxy port number
 	if (*argv[2] == '\0' || *ep != '\0')
@@ -76,14 +157,13 @@ int main(int argc, char *argv[])
 		usage();
 	}
 	/* now safe to do this */
-	port = p;
+	port = PORT;
 
 	FILE *fp;
-	char fileName[1024]; 
+	char fileName[1024];
 	size_t fileLen = 0;
 	ssize_t read;
 	int i = 0;
-	
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0)
@@ -121,9 +201,16 @@ int main(int argc, char *argv[])
 		newSocket = accept(sockfd, (struct sockaddr *)&newAddr, &addr_size);
 		if (newSocket < 0)
 		{
-			printf("[-]Accept failed.\n");
 			exit(1);
 		}
+		printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
+
+		printf("[+]Securing socket with TLS...\n");
+		if(tls_accept_socket(ctx, &cctx, newSocket) != 0)
+		{
+			errx(1, "[-]New socket could not be accepted.\n");
+		}
+		printf("[+]Socket secured with TLS.\n");
 		printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 
 		if ((childpid = fork()) == 0)
@@ -133,59 +220,66 @@ int main(int argc, char *argv[])
 			while (1)
 			{
 				ssize_t msgLength;
-				if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
+				//if ((msgLength = recv(newSocket, buffer, sizeof(buffer), 0)) <= 0)
+				if ((msgLength = tls_read(cctx, buffer, sizeof(buffer))) <= 0)
 				{ // check to see if client closed connection
-					printf("[-]Disconnected from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-					break;
-				}
-				else if (strcmp(buffer, ":exit") == 0)
-				{
 					printf("[-]Disconnected from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 					break;
 				}
 				else // sending the file back to the proxy.
 				{
-    				int fd;
+					int fd;
 					char fileContent[1024], c;
 					buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
-					printf("[+]Proxy requests: %s, read %d bytes from buffer \n", buffer, (int)msgLength);
+					printf("[+]Proxy requests: '%s'\n", buffer);
 					// find the file from filename
-					if ((fd = open(buffer, O_RDONLY)) == -1)
-					{
-						printf("[-]Error! opening file\n");
-						// Program exits if the file pointer returns NULL.
-						strncpy(buffer,"File does not exist.", sizeof(buffer));
-						send(newSocket,buffer, sizeof(buffer), 0);
+					FILE *db;
+					if ((db = fopen("../../src/server/files.txt", "r")) == NULL)
+					{ // will store the filename: content for all files in files.txt
+						printf("[-]Error! opening file 'files.txt'\n");
+						strncpy(buffer, "File does not exist.", sizeof(buffer));
+						//send(newSocket, buffer, sizeof(buffer), 0);
+						if((tls_write(cctx, buffer, sizeof(buffer))) <= 0)
+						{
+							err(1, "tls_write: %s", tls_error(ctx));
+						};
+						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
 						break;
 					}
-					printf("[+]Opened file.\n");
 
-					struct stat fileStat;
-					if (fstat(fd, &fileStat) < 0)
-					{
-						printf("[-]Error at fstat\n");
-						exit(1);
-					}
-					char fileSize[256];
-					sprintf(fileSize, "%d", (int)fileStat.st_size);
-					int len;
-					if ((len = send(newSocket, fileSize, sizeof(fileSize), 0) < 0))
-					{
-						printf("[-]Fail on sending length of file size");
-						exit(1);
-					}
+					if (getFileContent(db, buffer, fileContent) == -1)
+					{ // if file does not exist in files.txt
 
-					off_t offset = 0;
-					int remainingData = fileStat.st_size;
-					// sending file data
-					int sentBytes = 0;
-					while ((sentBytes = sendfile(newSocket, fd, &offset, BUFSIZ)) > 0 && remainingData > 0)
-					{
-						remainingData -= sentBytes;
+						printf("[-]'%s' does not exist\n", buffer);
+						strncpy(buffer, "File does not exist.", sizeof(buffer));
+						// send(newSocket, buffer, sizeof(buffer), 0);
+						if((tls_write(cctx, buffer, sizeof(buffer))) <= 0)
+						{
+							err(1, "tls_write: %s", tls_error(ctx));
+						};
+						printf("[-]Disconnected from proxy\n\n");
+						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
+						break;
 					}
-					printf("[+]Finished sending file to Proxy\n");
-					close(fd);
-					bzero(buffer, sizeof(buffer));
+					else
+					{
+						printf("Sending file: filecontent to proxy: '%s'\n",fileContent);
+						//send(newSocket, fileContent, sizeof(fileContent), 0);
+						if((tls_write(cctx, fileContent, sizeof(fileContent))) <= 0)
+						{
+							err(1, "tls_write: %s", tls_error(ctx));
+						};
+						printf("[+]Finished sending file to Proxy\n");
+						bzero(buffer, sizeof(buffer));
+						bzero(fileName, sizeof(fileName));
+						close(newSocket);
+						break;
+					}
+					
 				}
 			}
 		}
