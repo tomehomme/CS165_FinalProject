@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/sendfile.h>
+#include <sys/prctl.h>
 
 #include <pthread.h>
 #include <fcntl.h>
@@ -486,23 +487,33 @@ int main(int argc, char *argv[])
 	/* now safe to do this */
 	serverPort = p;
 
-	// initialize the proxy w/ blacklist & bloomfilter
-	proxy.cache = malloc(30000 * sizeof(struct File *));
-	proxy.numCache = 0;
-
-	proxy.bloomFilter = &bloomFilter;
-	bloomFilter.size = pow(2, 32) - 1; // to hold 30000 obj
-	bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(u_int8_t));
-	memset(bloomFilter.bloomFilter, 0, sizeof(bloomFilter.bloomFilter));
 	char *proxyNames[5] = {"ProxyOne", "ProxyTwo", "ProxyThree", "ProxyFour", "ProxyFive"}; // hold the port names of each proxy
 	int proxyPorts[5] = {9990, 9991, 9992, 9993, 9994};										// hold the port numbers of each proxy
-
+	pid_t forkVal;
 	for (int proxyNum = 0; proxyNum < 5; proxyNum++)
 	{ // fork 5 proxies
-		if (fork() == 0)
+		pid_t ppid_before_fork = getpid();
+		if ((forkVal = fork()) == 0)
 		{
-			port = proxyPorts[proxyNum];
-			printf("[+]Reading black-listed objects from 'blacklisted.txt' and adding to black list\n");
+			port = proxyPorts[proxyNum]; // set specified proxy portnumber
+			// initialize the proxy w/ blacklist & bloomfilter
+			proxy.cache = malloc(30000 * sizeof(struct File *));
+			proxy.numCache = 0;
+
+			proxy.bloomFilter = &bloomFilter;
+			bloomFilter.size = pow(2, 32) - 1; // to hold 30000 obj
+			bloomFilter.bloomFilter = malloc(bloomFilter.size * sizeof(u_int8_t));
+			proxy.numBlacklist = 0; // holds the number of blacklisted items
+			memset(bloomFilter.bloomFilter, 0, sizeof(bloomFilter.bloomFilter));
+
+			// if kill parent
+			int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
+			if (r == -1)
+			{
+				perror(0);
+				exit(1);
+			}
+			printf("[+]Reading black-listed objects from 'blacklisted.txt' and adding to black list on Proxy %d\n", proxyNum);
 
 			FILE *fp;
 			char blackListFile[1024];
@@ -552,10 +563,15 @@ int main(int argc, char *argv[])
 				usage();
 			}
 
+			if (getppid() != ppid_before_fork)
+			{
+				printf("parent gone!\n");
+				exit(1);
+			}
 			ret = bind(sockfd, (struct sockaddr *)&proxyAddr, sizeof(proxyAddr));
 			if (ret < 0)
 			{
-				err(1, "[-]Error in binding.\n");
+				err(1, "[-]Proxy %d: Error in binding.\n", proxyNum);
 				exit(1);
 			}
 			printf("[+]Bind to port %d\n", port);
@@ -613,11 +629,17 @@ int main(int argc, char *argv[])
 				}
 				// close thread
 				pthread_join(thread_id, NULL);
+				if (getppid() != ppid_before_fork)
+				{
+					printf("parent gone!\n");
+					exit(1);
+				}
 			}
+			printf("close\n");
 			close(newSocket);
-
 			return 0;
 		}
 	}
+	wait(NULL);
 	return 0;
 }
