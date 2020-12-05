@@ -134,49 +134,59 @@ int main(int argc, char *argv[])
 
 	if((tls_init()) != 0)
 	{
-		perror("TLS could not be initialized");
+		err(1, "[-]TLS could not be initialized\n");
 	}
-
+	
+	printf("[+]TLS initialized.\n");
+	
 	if((cfg = tls_config_new()) == NULL) //Initiates client TLS config.
 	{
-		perror("TLS Config could not finish.");
+		err(1, "[-]TLS Config could not finish.\n");
 	}
 
 	printf("[+]TLS config created.\n");
 
-	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
+	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
 	{
-		perror("Could not set client root certificate.");
+		err(1, "[-]Could not set client root certificate.\n");
 	}
 
 	printf("[+]TLS certificate set.\n");
 
-	// printf("[+]TLS client private key set.\n");
-	tls_config_insecure_noverifyname(cfg);
+	tls_config_insecure_noverifyname(cfg); // Needed to use tls_connectsocket as proxy was trying to verify a name within the certificate.
 
 	if((ctx = tls_client())== NULL)
 	{
-		perror("Could not create client TLS context.");
+		err(1, "[-]Could not create client TLS context.\n");
 	}
 
-	printf("[+]TLS client created.\n");
+	printf("[+]TLS client context created.\n");
 
 	if(tls_configure(ctx, cfg) != 0)
 	{
-		perror("Could not create client TLS configuration.");
+		err(1, "[-]Could not create client TLS configuration.\n");
 	}
+	
 	printf("[+]TLS client instance created.\n");
 
 	connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
 
 	printf("[+]Connected to proxy.\n");
+	
 	/*TLS Connect Check*/
 
 	if((tls_connect_socket(ctx, clientSocket, "client")) != 0)
 	{
-		err(1, "tls_connect_socket: %s", tls_error(ctx));
-		exit(1);
+		err(1, "[-]tls_connect_socket: %s", tls_error(ctx));
 	}
+
+	printf("[+]Connected to proxy socket and intializing handshake...\n");
+
+	if((tls_handshake(ctx) != 0))
+	{
+		errx(1, "[-]Could not establish handshake with proxy.\n");
+	}
+
 	printf("[+]Secured connection to proxy with TLS\n");
 
 	while (1)
@@ -200,7 +210,7 @@ int main(int argc, char *argv[])
 		// recieve the file size
 		if((tls_read(ctx, buffer, sizeof(buffer))) <= 0)
 		{
-			perror("tls_read from proxy\n");
+			err(1, "tls_read from proxy error");
 		}
 
 		// first check to see if the file is denied or does not exist..
@@ -218,8 +228,9 @@ int main(int argc, char *argv[])
 		{
 			printf("[+]Finished receiving '%s'. Printing contents...\n", fileName);
 			printf("%s\n", buffer);
-			bzero(buffer, sizeof(buffer));
-			bzero(fileName, sizeof(fileName));
+			bzero(buffer, sizeof(buffer)); //Zero out buffers
+			bzero(fileName, sizeof(fileName)); //Zero out buffers
+			free(ctx);
 			close(clientSocket);
 			return 0;
 		}

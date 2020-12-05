@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
 	if((cfg = tls_config_new()) == NULL)
 	{
-		errx(1, "tls_config_new:");
+		err(1, "tls_config_new:");
 	}
 
 	printf("[+]TLS config created.\n");
@@ -102,35 +102,35 @@ int main(int argc, char *argv[])
 
 	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) // Set the certificate file
 	{
-		errx(1, "tls_config_set_ca_file:");
+		err(1, "[-]tls_config_set_ca_file error\n");
 	}
 
 	printf("[+]TLS server root certificate set.\n");
 
 	if(tls_config_set_cert_file(cfg, "../../certificates/root.pem") != 0) //Set server certificate
 	{
-		errx(1, "tls_config_set_cert_file:");
+		err(1, "[-]tls_config_set_cert_file error\n");
 	}
 
 	printf("[+]TLS server certificate set.\n");
 
 	if(tls_config_set_key_file(cfg, "../../certificates//root/private/ca.key.pem") != 0) //Set server certificate
 	{
-		errx(1, "tls_config_set_key_file:");
+		err(1, "[-]tls_config_set_key_file error");
 	}
 
 	printf("[+]TLS server private key set.\n");
 
 	if((ctx = tls_server())== NULL)
 	{
-		errx(1, "tls_server:");
+		err(1, "[-]tls_server error");
 	}
 
 	printf("[+]TLS server created.\n");
 
 	if(tls_configure(ctx, cfg) != 0)
 	{
-		errx(1, "tls_configure: %s", tls_error(ctx));
+		err(1, "[-]tls_configure: %s", tls_error(ctx));
 	}
 	printf("[+]TLS server instance created.\n");
 
@@ -251,7 +251,7 @@ int main(int argc, char *argv[])
 						{
 							err(1, "tls_write: %s", tls_error(ctx));
 						};
-						printf("[+]Finished sending file to Proxy\n");
+						printf("[+]Finished sending file to Proxy\n\n");
 						bzero(buffer, sizeof(buffer));
 						bzero(fileName, sizeof(fileName));
 						close(newSocket);
