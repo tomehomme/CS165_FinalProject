@@ -106,6 +106,7 @@ int isInCache(struct Proxy *proxy, const char *fileName)
 	for (i = 0; i < proxy->numCache; i++)
 	{
 		// printf("%s", proxy->cache[i].fileName);
+		printf("[!]%s found in cache. Returning without contacting server.\n", fileName);
 		if (strcmp(proxy->cache[i].fileName, fileName) == 0)
 		{
 			return 1;
@@ -125,7 +126,7 @@ void getFromCache(struct Proxy *proxy, const char *fileName, char *buffer)
 	{
 		if (strcmp(proxy->cache[i].fileName, fileName) == 0)
 		{
-			// if we have the correct file
+			// if we have the correct file'
 			strcpy(buffer, proxy->cache[i].fileName);
 			strcat(buffer, ": ");
 			strcat(buffer, proxy->cache[i].content);
@@ -290,51 +291,59 @@ void *handleClient(void *inputs)
 
 						printf("[+]Proxy %d: Running TLS Configuration for proxy client\n",  thread_data->proxyNum);
 
-						/* Calling TLS */
+						/* Calling TLS                                               */
+						/* Sets all necessary certificates                           */
+						/* Verifies TLS handshake before proceeding to write or read */
+
 						if ((tls_init()) != 0)
 						{
-							perror("TLS could not be initialized");
+							err(1, "[-]TLS could not be initialized");
 						}
 
 						if ((thread_data->pcfg = tls_config_new()) == NULL) //Initiates client TLS config.
 						{
-							perror("TLS Config could not finish.");
+							err(1, "[-]TLS Config could not finish");
 						}
 
 						printf("[+]Proxy %d: TLS config created.\n",  thread_data->proxyNum);
 
 						if (tls_config_set_ca_file(thread_data->pcfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
 						{
-							perror("Could not set client root certificate.");
+							err(1, "[-]Could not set client root certificate");
 						}
 
-						printf("[+]Proxy %d:TLS certificate set.\n", thread_data->proxyNum);
+						printf("[+]Proxy %d:TLS certificate set.\n", thread_data->proxyNum); //Set proxy root certificate
 						tls_config_insecure_noverifyname(thread_data->pcfg);
 
 						if ((thread_data->pctx = tls_client()) == NULL)
 						{
-							perror("Could not create client TLS context.");
+							err(1, "[-]Could not create client TLS context");
 						}
 
-						printf("[+]Proxy %d:TLS client created.\n", thread_data->proxyNum);
+						printf("[+]Proxy %d:TLS client created.\n", thread_data->proxyNum); // Create proxy client to send data and connect to server socket
 
 						if (tls_configure(thread_data->pctx, thread_data->pcfg) != 0)
 						{
-							perror("Could not create client TLS configuration.");
+							err(1, "[-]Could not create client TLS configuration");
 						}
+						
 						printf("[+]Proxy %d: TLS client instance created.\n", thread_data->proxyNum);
 
 						/* connect to server via tls connection */
+
 						if ((tls_connect_socket(thread_data->pctx, thread_data->serverSock, "server")) != 0)
 						{
-							errx(1, "tls_connect_socket: %s", tls_error(thread_data->pctx));
+							errx(1, "[-]tls_connect_socket: %s", tls_error(thread_data->pctx));
 						}
+						printf("[+]Connected to server socket and initializing TLS handshake...\n");
 
-						if (tls_handshake(thread_data->pctx) != 0)
+						if (tls_handshake(thread_data->pctx) != 0) // Establish handshake with the server.
 						{
-							errx(1, "tls_handshake could not be established");
+							errx(1, "[-]tls_handshake could not be established");
 						}
-						printf("[+]Proxy %d: TLS Handshake complete\n", thread_data->proxyNum);
+						printf("[+]Proxy %d: TLS Handshake complete.\n", thread_data->proxyNum);
+						
+						/* Once handhsake is established then we can write via TLS */
 						tls_write(thread_data->pctx, buffer, sizeof(buffer));
 
 						int serverMsgLength = 0;
@@ -370,7 +379,7 @@ void *handleClient(void *inputs)
 					bzero(buffer, sizeof(buffer));
 					bzero(fileName, sizeof(fileName));
 					free(thread_data->cctx);
-					close(thread_data->newSocket); // do i close here or ..
+					close(thread_data->newSocket); 
 				}
 				// 5. close connection
 			}
@@ -427,41 +436,39 @@ int main(int argc, char *argv[])
 
 	printf("[+]TLS config created.\n");
 
-	/*Setting the auth certificate for proxy*/
-
 	if (tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) // Set the certificate file
 	{
-		err(1, "tls_config_set_ca_file:");
+		err(1, "tls_config_set_ca_file error");
 	}
 
 	printf("[+]TLS proxy root certificate set.\n");
 
 	if (tls_config_set_cert_file(cfg, "../../certificates/root.pem") != 0) //Set server certificate
 	{
-		err(1, "tls_config_set_cert_file:");
+		err(1, "tls_config_set_cert_file error");
 	}
 
 	printf("[+]TLS proxy server certificate set.\n");
 
 	if (tls_config_set_key_file(cfg, "../../certificates/root/private/ca.key.pem") != 0) //Set server private key
 	{
-		err(1, "tls_config_set_key_file:");
+		err(1, "tls_config_set_key_file error");
 	}
 
 	printf("[+]TLS proxy server private key set.\n");
 
 	if ((ctx = tls_server()) == NULL)
 	{
-		err(1, "tls_server:");
+		err(1, "tls_server error");
 	}
 
-	printf("[+]TLS proxy created.\n");
+	printf("[+]TLS proxy context created.\n");
 
 	if (tls_configure(ctx, cfg) != 0)
 	{
 		err(1, "tls_configure: %s", tls_error(ctx));
 	}
-	printf("[+]TLS proxy context created.\n");
+	printf("[+]TLS proxy instance created.\n");
 
 	errno = 0;
 
@@ -501,7 +508,7 @@ int main(int argc, char *argv[])
 			size_t fileLen = 0;
 			ssize_t read;
 			int i = 0;
-			if ((fp = fopen("blacklisted.txt", "r")) == NULL)
+			if ((fp = fopen("../../src/proxy/blacklisted.txt", "r")) == NULL)
 			{
 				printf("[-]Failed to open the 'blacklisted.txt' file! Terminating program.\n");
 				exit(1);
@@ -579,14 +586,17 @@ int main(int argc, char *argv[])
 					exit(1);
 				}
 
-				/* Securing Connection with TLS  */
+				/* Securing Connection with TLS              */
+				/* Handshake is established from proxy's end */
+
 				printf("[+]Proxy %d: Securing socket with TLS...\n", proxyNum);
 				if (tls_accept_socket(ctx, &cctx, newSocket) != 0)
 				{
-					perror("[-]New socket could not be accepted.\n");
+					err(1, "[-]New socket could not be secured.");
 					exit(1);
 				}
 				printf("[+]Proxy %d: Socket secured with TLS.\n", proxyNum);
+
 				printf("[+]Proxy %d: Connection accepted from %s:%d\n", proxyNum, inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 
 				pthread_t thread_id;
@@ -618,7 +628,8 @@ int main(int argc, char *argv[])
 				}
 			}
 			printf("close\n");
-			close(newSocket);
+			free(ctx); // Free context for next usage
+			close(newSocket); // Close socket
 			return 0;
 		}
 	}
