@@ -23,6 +23,7 @@
 #include <math.h>
 #include <tls.h> // for TLS
 
+#define PORT 9998
 struct File
 {
 	char fileName[1024];
@@ -193,7 +194,7 @@ int isInBlackList(struct Proxy *proxy, const char fileName[])
 static void usage()
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s -port portnumber -server serverportnumber\n", __progname);
+	fprintf(stderr, "usage: %s\n", __progname);
 	exit(1);
 }
 
@@ -214,6 +215,7 @@ struct thread_data
 	struct tls *cctx;
 	struct tls *pctx;
 	struct tls_config *pcfg;
+	int proxyNum;
 };
 
 pthread_mutex_t lock;
@@ -227,7 +229,7 @@ void *handleClient(void *inputs)
 	{
 		if ((msgLength = tls_read(thread_data->cctx, buffer, sizeof(buffer))) < 0)
 		{ // check to see if client closed connection
-			printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
+			printf("[-]Proxy %d: Disconnected from %s:%d\n\n",  thread_data->proxyNum, inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
 			break;
 		}
 		else // sending the file back to the user.
@@ -237,7 +239,7 @@ void *handleClient(void *inputs)
 			buffer[msgLength] = '\0'; // make sure that we only look at the message we read in
 			strcpy(fileName, buffer);
 
-			printf("[+]Client requests: '%s'\n", fileName);
+			printf("[+]Proxy %d: Client requests: '%s'\n", thread_data->proxyNum, fileName);
 			// 1. Check compute hash bloom filter first with isInBloomFilter() function
 			if (isInBloomFilter(thread_data->proxy->bloomFilter, buffer))
 			{
@@ -249,7 +251,7 @@ void *handleClient(void *inputs)
 				// 1b. is isInBloomFilter() == 0, then run isInBlacklist(). If == 1, then respond "Request Denied"
 				if (isInBlackList(thread_data->proxy, buffer))
 				{
-					printf("[!]File in blacklist. Denying access\n");
+					printf("[!]Proxy %d: File in blacklist. Denying access\n",  thread_data->proxyNum);
 					tls_write(thread_data->cctx, "Access Denied.", sizeof(buffer));
 					bzero(buffer, sizeof(buffer));
 					bzero(fileName, sizeof(fileName));
@@ -264,7 +266,7 @@ void *handleClient(void *inputs)
 					// 2. check the cache files to see if file is stored
 					if (!isInCache(thread_data->proxy, buffer))
 					{
-						printf("[+]File not in cache. Initiating handshake with server\n");
+						printf("[+]Proxy %d File not in cache. Initiating handshake with server\n",  thread_data->proxyNum);
 						// 3. TLS connection/handshake with server and request file
 						memset(&thread_data->server, 0, sizeof(thread_data->server));
 						thread_data->server.sin_family = AF_INET;
@@ -286,7 +288,7 @@ void *handleClient(void *inputs)
 							err(1, "connect failed");
 						}
 
-						printf("[+]Running TLS Configuration for proxy client\n");
+						printf("[+]Proxy %d: Running TLS Configuration for proxy client\n",  thread_data->proxyNum);
 
 						/* Calling TLS */
 						if ((tls_init()) != 0)
@@ -299,14 +301,14 @@ void *handleClient(void *inputs)
 							perror("TLS Config could not finish.");
 						}
 
-						printf("[+]TLS config created.\n");
+						printf("[+]Proxy %d: TLS config created.\n",  thread_data->proxyNum);
 
 						if (tls_config_set_ca_file(thread_data->pcfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
 						{
 							perror("Could not set client root certificate.");
 						}
 
-						printf("[+]TLS certificate set.\n");
+						printf("[+]Proxy %d:TLS certificate set.\n", thread_data->proxyNum);
 						tls_config_insecure_noverifyname(thread_data->pcfg);
 
 						if ((thread_data->pctx = tls_client()) == NULL)
@@ -314,13 +316,13 @@ void *handleClient(void *inputs)
 							perror("Could not create client TLS context.");
 						}
 
-						printf("[+]TLS client created.\n");
+						printf("[+]Proxy %d:TLS client created.\n", thread_data->proxyNum);
 
 						if (tls_configure(thread_data->pctx, thread_data->pcfg) != 0)
 						{
 							perror("Could not create client TLS configuration.");
 						}
-						printf("[+]TLS client instance created.\n");
+						printf("[+]Proxy %d: TLS client instance created.\n", thread_data->proxyNum);
 
 						/* connect to server via tls connection */
 						if ((tls_connect_socket(thread_data->pctx, thread_data->serverSock, "server")) != 0)
@@ -332,39 +334,39 @@ void *handleClient(void *inputs)
 						{
 							errx(1, "tls_handshake could not be established");
 						}
-						printf("[+]TLS Handshake complete\n");
+						printf("[+]Proxy %d: TLS Handshake complete\n", thread_data->proxyNum);
 						tls_write(thread_data->pctx, buffer, sizeof(buffer));
 
 						int serverMsgLength = 0;
 						if ((serverMsgLength = tls_read(thread_data->pctx, buffer, sizeof(buffer))) <= 0)
 						{
-							printf("[-]Disconnected from %s:%d\n\n", inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
+							printf("[-]Proxy %d:Disconnected from %s:%d\n\n", thread_data->proxyNum, inet_ntoa(thread_data->newAddr.sin_addr), ntohs(thread_data->newAddr.sin_port));
 							break;
 						}
 						else
 						{
-							printf("[+]Received '%s' from server.\n", buffer);
+							printf("[+]Proxy %d: Received '%s' from server.\n",  thread_data->proxyNum, buffer);
 							if (strcmp(buffer, "File does not exist.") == 0)
 							{
 								strncpy(buffer, "Access Denied. File does not exist.", sizeof(buffer));
 								tls_write(thread_data->cctx, buffer, sizeof(buffer));
-								printf("File does not exist.\n");
+								printf("Proxy %d: File does not exist.\n", thread_data->proxyNum);
 								bzero(buffer, sizeof(buffer));
 								bzero(fileName, sizeof(fileName));
 								break;
 							}
 						}
 						// 3a. store the file in the cache
-						printf("[+]Adding file to cache...\n");
+						printf("[+]Proxy %d: Adding file to cache...\n",  thread_data->proxyNum);
 						addToCache(thread_data->proxy, buffer, fileName);
-						printf("[+]Finished adding to cache. Cache size: %d\n", thread_data->proxy->numCache);
+						printf("[+]Proxy %d: Finished adding to cache. Cache size: %d\n", thread_data->proxyNum, thread_data->proxy->numCache);
 					}
 					// unlock mutex
 					pthread_mutex_unlock(&lock);
 					// 4. send file to client over
 					getFromCache(thread_data->proxy, fileName, buffer);
 					tls_write(thread_data->cctx, buffer, sizeof(buffer));
-					printf("[+]Finished sending file to client\n");
+					printf("[+]Proxy %d: Finished sending file to client\n",  thread_data->proxyNum);
 					bzero(buffer, sizeof(buffer));
 					bzero(fileName, sizeof(fileName));
 					free(thread_data->cctx);
@@ -402,12 +404,6 @@ int main(int argc, char *argv[])
 	int serverSock;
 	pid_t serverPID;
 	int serverPort;
-
-	// get the portnumber from argument
-	if (argc != 3)
-	{
-		usage();
-	}
 
 	/* TLS Proxy Configuration */
 	struct tls_config *cfg = NULL;
@@ -468,24 +464,9 @@ int main(int argc, char *argv[])
 	printf("[+]TLS proxy context created.\n");
 
 	errno = 0;
-	p = strtoul(argv[2], &ep, 10); // grab server port number
-	if (*argv[2] == '\0' || *ep != '\0')
-	{
-		/* parameter wasn't a number, or was empty */
-		fprintf(stderr, "%s - not a number\n", argv[2]);
-		usage();
-	}
 
-	if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX))
-	{
-		/* It's a number, but it either can't fit in an unsigned
-		* long, or is too big for an unsigned short
-		*/
-		fprintf(stderr, "%s - value out of range\n", argv[2]);
-		usage();
-	}
 	/* now safe to do this */
-	serverPort = p;
+	serverPort = PORT;
 
 	char *proxyNames[5] = {"ProxyOne", "ProxyTwo", "ProxyThree", "ProxyFour", "ProxyFive"}; // hold the port names of each proxy
 	int proxyPorts[5] = {9990, 9991, 9992, 9993, 9994};										// hold the port numbers of each proxy
@@ -574,11 +555,11 @@ int main(int argc, char *argv[])
 				err(1, "[-]Proxy %d: Error in binding.\n", proxyNum);
 				exit(1);
 			}
-			printf("[+]Bind to port %d\n", port);
+			printf("[+]Proxy %d: Bind to port %d\n", proxyNum, port);
 
 			if (listen(sockfd, 10) == 0)
 			{
-				printf("[+]Listening....\n\n");
+				printf("[+]Proxy %d: Listening....\n\n", proxyNum);
 			}
 			else
 			{
@@ -599,19 +580,20 @@ int main(int argc, char *argv[])
 				}
 
 				/* Securing Connection with TLS  */
-				printf("[+]Securing socket with TLS...\n");
+				printf("[+]Proxy %d: Securing socket with TLS...\n", proxyNum);
 				if (tls_accept_socket(ctx, &cctx, newSocket) != 0)
 				{
 					perror("[-]New socket could not be accepted.\n");
 					exit(1);
 				}
-				printf("[+]Socket secured with TLS.\n");
-				printf("[+]Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
+				printf("[+]Proxy %d: Socket secured with TLS.\n", proxyNum);
+				printf("[+]Proxy %d: Connection accepted from %s:%d\n", proxyNum, inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
 
 				pthread_t thread_id;
 				struct thread_data *thread_data = malloc(sizeof(struct thread_data));
 
 				thread_data->proxy = &proxy;
+				thread_data->proxyNum = proxyNum;
 				thread_data->newSocket = newSocket;
 				thread_data->newAddr = newAddr;
 				thread_data->server = server;

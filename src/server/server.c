@@ -48,7 +48,7 @@ int getFileContent(FILE *database, const char *filename, char *buffer)
 static void usage()
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s -port portnumber\n", __progname);
+	fprintf(stderr, "usage: %s\n", __progname);
 	exit(1);
 }
 
@@ -75,12 +75,6 @@ int main(int argc, char *argv[])
 	socklen_t addr_size;
 	pid_t childpid;
 	pid_t pid;
-
-	// get the portnumber from argument
-	if (argc != 3)
-	{
-		usage();
-	}
 
 	/* TLS Server Configuration */
 	struct tls_config *cfg = NULL;
@@ -141,22 +135,6 @@ int main(int argc, char *argv[])
 	printf("[+]TLS server instance created.\n");
 
 	errno = 0;
-	p = strtoul(argv[2], &ep, 10); // grab proxy port number
-	if (*argv[2] == '\0' || *ep != '\0')
-	{
-		/* parameter wasn't a number, or was empty */
-		fprintf(stderr, "%s - not a number\n", argv[2]);
-		usage();
-	}
-	if ((errno == ERANGE && p == ULONG_MAX) || (p > USHRT_MAX))
-	{
-		/* It's a number, but it either can't fit in an unsigned
-		* long, or is too big for an unsigned short
-		*/
-		fprintf(stderr, "%s - value out of range\n", argv[2]);
-		usage();
-	}
-	/* now safe to do this */
 	port = PORT;
 
 	FILE *fp;
