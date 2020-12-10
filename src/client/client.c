@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 
 	printf("[+]TLS config created.\n");
 
-	if(tls_config_set_ca_file(cfg, "../certificates/root.pem") != 0) //Sets client root certificate.
+	if(tls_config_set_ca_file(cfg, "../../certificates/root.pem") != 0) //Sets client root certificate.
 	{
 		err(1, "[-]Could not set client root certificate.\n");
 	}
@@ -187,7 +187,7 @@ int main(int argc, char *argv[])
 		errx(1, "[-]Could not establish handshake with proxy.\n");
 	}
 
-	printf("[+]Secured connection to proxy with TLS\n");
+	printf("[+]Handshake successful. Connection secured to proxy with TLS\n");
 
 	while (1)
 	{
